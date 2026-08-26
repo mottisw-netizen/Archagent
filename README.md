@@ -93,11 +93,19 @@ A Hebrew, right-to-left workspace over the same agent:
 
 The `claude-code` engine is the literal thing: Claude reads the project, decides
 what to do, runs the pipeline through its command line, reads the report it
-produced and writes the architect a summary in Hebrew. What makes that safe is a
-tool guard - Claude may read the project and run `archagent`, and **nothing
-else**; `Write`, `Edit`, `WebFetch` and every other shell command are denied at
-the permission callback, so the deterministic pipeline remains the only thing
-that edits a drawing.
+produced and writes the architect a summary in Hebrew. What makes that safe is
+`ClaudeCodeEngine.guard_for()` - the `can_use_tool` callback the SDK consults
+before every tool call:
+
+- `Bash` is allowed only when the command matches `archagent` / `python -m archagent`;
+- `Read`, `Glob` and `Grep` are allowed only for paths inside the project or the
+  repository;
+- `Write`, `Edit`, `WebFetch`, `WebSearch` and everything else are denied.
+
+**`allowed_tools` must stay empty for this to hold.** An entry there
+auto-approves the whole tool *before* the callback runs - the SDK warns about it
+(`CanUseToolShadowedWarning`), and a test asserts the list stays empty. The
+deterministic pipeline remains the only thing that edits a drawing.
 
 ### Connecting to the Claude service
 
@@ -248,7 +256,7 @@ what a comment said.
 ## Tests
 
 ```bash
-python3 -m pytest -q      # 149 tests, no network access required
+python3 -m pytest -q      # 153 tests, no network access required
 ```
 
 The Claude paths are covered with scripted clients: invalid readings, the

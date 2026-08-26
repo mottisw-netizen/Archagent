@@ -180,6 +180,58 @@ def test_the_tool_guard_allows_only_the_project_command():
     assert not {"Write", "Edit", "Bash"} & READ_ONLY_TOOLS
 
 
+def _decide(project_dir, tool, payload):
+    """Run the real permission callback the SDK would call."""
+    import asyncio
+
+    from archagent.web.engines import ClaudeCodeEngine
+    from archagent.web.runs import Run
+
+    run = Run("guard", "example:project_he", {})
+    guard = ClaudeCodeEngine().guard_for(run, project_dir)
+    return asyncio.run(guard(tool, payload)), run
+
+
+def test_the_guard_denies_every_shell_command_except_archagent(project_he):
+    allowed, _run = _decide(project_he, "Bash",
+                            {"command": f"archagent run {project_he} --mode autonomous"})
+    assert allowed.behavior == "allow"
+
+    for command in ("whoami", "rm -rf /", "cat ~/.ssh/id_rsa",
+                    "echo hi && archagent run x", "archagentx run"):
+        denied, run = _decide(project_he, "Bash", {"command": command})
+        assert denied.behavior == "deny", command
+        assert any(event.kind == "blocked" for event in run.events)
+
+
+def test_the_guard_denies_writing_and_web_access(project_he):
+    for tool in ("Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch"):
+        denied, _run = _decide(project_he, tool, {"file_path": str(project_he / "x")})
+        assert denied.behavior == "deny", tool
+
+
+def test_reads_are_confined_to_the_project_and_the_repository(project_he):
+    inside, _run = _decide(project_he, "Read",
+                           {"file_path": str(project_he / "source" / "project.json")})
+    assert inside.behavior == "allow"
+
+    for path in ("/etc/hostname", "/root/.ssh/id_rsa", "/etc/../etc/passwd"):
+        denied, run = _decide(project_he, "Read", {"file_path": path})
+        assert denied.behavior == "deny", path
+        assert any(event.kind == "blocked" for event in run.events)
+
+
+def test_the_engine_never_pre_approves_a_tool_past_the_guard():
+    """allowed_tools must stay empty - an entry there bypasses can_use_tool."""
+    import pathlib
+
+    from archagent.web import engines
+
+    source = pathlib.Path(engines.__file__).read_text(encoding="utf-8")
+    assert "allowed_tools=[]," in source
+    assert 'allowed_tools=["Bash"' not in source
+
+
 def test_claude_code_availability_is_reported_not_assumed():
     from archagent.web.engines import ClaudeCodeEngine
 

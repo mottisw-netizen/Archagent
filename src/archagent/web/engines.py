@@ -131,31 +131,26 @@ class ClaudeCodeEngine:
         return True, ""
 
     # ------------------------------------------------------------------
-    def run(self, run: Run, project_dir: Path) -> None:
-        ok, reason = self.available()
-        if not ok:
-            raise RuntimeError(reason)
-        asyncio.run(self._drive(run, project_dir))
+    def guard_for(self, run: Run, project_dir):
+        """The permission callback: Claude may read this project and run archagent.
 
-    async def _drive(self, run: Run, project_dir: Path) -> None:
-        from claude_agent_sdk import (
-            AssistantMessage,
-            ClaudeAgentOptions,
-            PermissionResultAllow,
-            PermissionResultDeny,
-            ResultMessage,
-            TextBlock,
-            ThinkingBlock,
-            ToolUseBlock,
-            query,
-        )
+        This is the whole security model of the engine, so it is a named method
+        with tests rather than a closure.  It only works because
+        ``allowed_tools`` is empty - an entry there auto-approves a tool before
+        the callback is consulted.
+        """
+        from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
 
-        options = run.options
-        output_dir = Path(project_dir) / "output" / f"cc-{run.run_id}"
-
-        async def guard(tool: str, payload: dict, context) -> object:
-            """Claude may read this project and run archagent. Nothing else."""
+        async def guard(tool: str, payload: dict, context=None) -> object:
             if tool in READ_ONLY_TOOLS:
+                outside = _outside_paths(payload, project_dir)
+                if outside:
+                    run.emit("blocked", "קריאה מחוץ לפרויקט נחסמה",
+                             detail=", ".join(outside), step="ingest")
+                    return PermissionResultDeny(
+                        behavior="deny",
+                        message="Only files inside the project and this repository can be read.",
+                        interrupt=False)
                 return PermissionResultAllow(behavior="allow", updated_input=payload)
             if tool == "Bash":
                 command = str(payload.get("command", "")).strip()
@@ -174,12 +169,39 @@ class ClaudeCodeEngine:
                 message=f"{tool} is not available in this application; use archagent.",
                 interrupt=False)
 
+        return guard
+
+    def run(self, run: Run, project_dir: Path) -> None:
+        ok, reason = self.available()
+        if not ok:
+            raise RuntimeError(reason)
+        asyncio.run(self._drive(run, project_dir))
+
+    async def _drive(self, run: Run, project_dir: Path) -> None:
+        from claude_agent_sdk import (
+            AssistantMessage,
+            ClaudeAgentOptions,
+            ResultMessage,
+            TextBlock,
+            ThinkingBlock,
+            ToolUseBlock,
+            query,
+        )
+
+        options = run.options
+        output_dir = Path(project_dir) / "output" / f"cc-{run.run_id}"
+
+        guard = self.guard_for(run, project_dir)
+
         agent_options = ClaudeAgentOptions(
             cwd=str(REPO_ROOT),
             model=self.model or options.get("model") or None,
             effort=options.get("effort") or "high",
             permission_mode="default",
-            allowed_tools=["Bash", "Read", "Glob", "Grep"],
+            # allowed_tools MUST stay empty: an entry that allows a whole tool
+            # auto-approves it *before* can_use_tool runs, which would silently
+            # bypass the guard below.  Everything goes through the callback.
+            allowed_tools=[],
             disallowed_tools=["Write", "Edit", "NotebookEdit", "WebSearch", "WebFetch"],
             can_use_tool=guard,
             setting_sources=["project"],
@@ -264,6 +286,23 @@ correct the drawing.
 
 Do not edit any file yourself. If the command fails, report the failure.
 """
+
+
+def _outside_paths(payload: dict, project_dir) -> list[str]:
+    """Paths in a read request that leave the project or the repository."""
+    roots = [Path(project_dir).resolve(), REPO_ROOT.resolve()]
+    outside = []
+    for key in ("file_path", "path", "notebook_path"):
+        value = payload.get(key)
+        if not value:
+            continue
+        candidate = Path(str(value))
+        if not candidate.is_absolute():
+            continue
+        resolved = candidate.resolve()
+        if not any(resolved == root or root in resolved.parents for root in roots):
+            outside.append(str(value))
+    return outside
 
 
 def _describe_tool(name: str, payload: dict) -> str:
