@@ -99,7 +99,7 @@ class ValidationAgent:
                                               requirement.basis)
         except DrawingAPIError as error:
             return CommentValidation(comment.comment_id, CommentStatus.REQUIRES_HUMAN_REVIEW,
-                                     note=self.m.t("v_cannot_measure", error=error))
+                                     note=self.m.t("v_cannot_measure", error=self.m.driver_error(error)))
         comparison = units.compare(measurement.value, requirement.op, requirement.value,
                                    requirement.unit, measurement.unit)
         evidence = {

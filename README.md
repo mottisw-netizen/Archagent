@@ -61,6 +61,51 @@ The example run produces, under `examples/project/`:
 | `output/<run>/validation_report.json` | measured constraint and comment validation |
 | `output/<run>/project_context.json` | the full run state, resumable and auditable |
 
+## The web application
+
+```bash
+pip install -e ".[dev]"        # or ".[web,llm,claude-code]"
+archagent-web                  # http://127.0.0.1:8000
+```
+
+A Hebrew, right-to-left workspace over the same agent:
+
+- **Projects** - the bundled examples, or drag your own comments, zoning
+  documents and model onto the page; files are sorted into roles on upload.
+- **A run you can watch** - the pipeline streams its steps over SSE: comments
+  parsed, elements mapped, plans simulated, changes applied, versions written.
+- **Consultation that actually blocks.** When a correction needs an architect's
+  decision, the run *stops*. The question appears with the comment, the
+  proposal, the measured consequences and the alternatives; the pipeline waits
+  on that answer before it touches the model.
+- **Results** - KPI tiles, a status bar in the reserved status palette (every
+  segment labelled - colour never carries the meaning alone), per-comment cards
+  with the measured evidence and a confidence meter against the threshold, the
+  constraint table, the before/after slider, the full report, and every
+  artefact for download.
+
+### Two engines behind the same screen
+
+| Engine | What runs | Consultation |
+| --- | --- | --- |
+| `pipeline` | The agent in the web server's own process | live - the run stops and asks you |
+| `claude-code` | **Claude Code drives the run** through the Claude Agent SDK | deferred to open items |
+
+The `claude-code` engine is the literal thing: Claude reads the project, decides
+what to do, runs the pipeline through its command line, reads the report it
+produced and writes the architect a summary in Hebrew. What makes that safe is a
+tool guard - Claude may read the project and run `archagent`, and **nothing
+else**; `Write`, `Edit`, `WebFetch` and every other shell command are denied at
+the permission callback, so the deterministic pipeline remains the only thing
+that edits a drawing.
+
+### Connecting to the Claude service
+
+The server uses `ANTHROPIC_API_KEY`, or an `ant auth login` profile, or a key
+pasted into the connection dialog (kept in the server process only, never
+written to disk). With no credentials the app still runs - on the deterministic
+parser, and it says so on screen.
+
 ## Hebrew
 
 `examples/project_he/` is the same site with Israeli comments. It parses the
@@ -162,6 +207,7 @@ the report says so rather than padding the result.
 | 20 Confidence model | `archagent/models.py` (`Confidence`) |
 | 20.4 Model / rules cross-check | `archagent/comments.py` |
 | 2.2 Model boundary, interpretation | `archagent/llm/` |
+| Web application, run streaming, engines | `archagent/web/` |
 | 22 Units, rounding, language | `archagent/units.py`, `archagent/lang/` |
 | 2, 5, 19 Orchestration | `archagent/orchestrator.py` |
 
@@ -202,7 +248,7 @@ what a comment said.
 ## Tests
 
 ```bash
-python3 -m pytest -q      # 133 tests, no network access required
+python3 -m pytest -q      # 149 tests, no network access required
 ```
 
 The Claude paths are covered with scripted clients: invalid readings, the

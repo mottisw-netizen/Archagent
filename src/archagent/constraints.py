@@ -114,7 +114,7 @@ def evaluate_constraint(driver: DrawingDriver, constraint: Constraint,
             constraint_id=constraint.constraint_id, status="not_evaluated",
             priority=constraint.priority, rule=constraint.rule,
             required=test.value, unit=test.unit, op=test.op,
-            note=m.t("v_cannot_measure", error=error),
+            note=m.t("v_cannot_measure", error=m.driver_error(error)),
         )
     comparison = units.compare(measurement.value, test.op, test.value, test.unit, measurement.unit)
     return ConstraintValidation(

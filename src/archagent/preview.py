@@ -51,22 +51,22 @@ DEFAULT_STYLE = ("#f4f4f4", "#8c8c8c")
 
 WIDTH = 960
 MARGIN = 40
+#: Room under the drawing for the legend, so it never sits on the geometry.
+LEGEND_BAND = 34
 
 
 class Preview:
     """Renders one model state."""
 
-    def __init__(self, model: dict, messages: Messages | None = None):
+    def __init__(self, model: dict, messages: Messages | None = None,
+                 extent: Box | None = None):
         self.model = model
         self.m = messages or DEFAULT_MESSAGES
-        plot = model.get("site", {}).get("plot")
-        boxes = [box_from_dict(e["geometry"]) for e in model.get("elements", [])
-                 if "geometry" in e]
-        if plot:
-            boxes.append(box_from_dict(plot))
-        self.extent = _union(boxes) or Box(0, 0, 10, 10)
+        #: A shared extent keeps before and after at one scale - without it a
+        #: slider would compare two differently-zoomed drawings.
+        self.extent = extent or model_extent(model)
         self.scale = (WIDTH - 2 * MARGIN) / max(self.extent.w, 1e-6)
-        self.height = int(self.extent.h * self.scale + 2 * MARGIN)
+        self.height = int(self.extent.h * self.scale + 2 * MARGIN + LEGEND_BAND)
 
     # ------------------------------------------------------------------
     def _x(self, value: float) -> float:
@@ -134,7 +134,7 @@ class Preview:
 
     def _legend(self) -> str:
         parts = ['<g>']
-        y = self.height - MARGIN + 6
+        y = self.height - 12
         x = MARGIN
         for kind, description in legend(self.m):
             parts.append(f'<rect x="{x}" y="{y - 10}" width="12" height="12" '
@@ -151,6 +151,18 @@ def _union(boxes: list[Box]) -> Box | None:
     x = min(b.x for b in boxes)
     y = min(b.y for b in boxes)
     return Box(x, y, max(b.x_max for b in boxes) - x, max(b.y_max for b in boxes) - y)
+
+
+def model_extent(*models: dict) -> Box:
+    """The area every drawing of these models should share."""
+    boxes: list[Box] = []
+    for model in models:
+        plot = model.get("site", {}).get("plot")
+        if plot:
+            boxes.append(box_from_dict(plot))
+        boxes += [box_from_dict(element["geometry"])
+                  for element in model.get("elements", []) if "geometry" in element]
+    return _union(boxes) or Box(0, 0, 10, 10)
 
 
 def build_change_map(changes: list[ChangeRecord], impact_set: list[str],
@@ -211,10 +223,11 @@ def write_previews(output_dir: Path, before_model: dict, after_model: dict,
     compare_dir = output_dir / "compare"
     compare_dir.mkdir(parents=True, exist_ok=True)
     highlights, tags = highlight_maps(change_map)
+    extent = model_extent(before_model, after_model)
 
-    before_svg = Preview(before_model, m).render(title=m.t("before"))
-    after_svg = Preview(after_model, m).render(title=m.t("after", version=version))
-    highlighted_svg = Preview(after_model, m).render(
+    before_svg = Preview(before_model, m, extent).render(title=m.t("before"))
+    after_svg = Preview(after_model, m, extent).render(title=m.t("after", version=version))
+    highlighted_svg = Preview(after_model, m, extent).render(
         highlights, tags, title=m.t("changes", version=version))
 
     files = {
@@ -259,8 +272,10 @@ def _comparison_page(before_svg: str, after_svg: str, change_map: dict, version:
  body {{ font-family: system-ui, sans-serif; margin: 24px; color: #222; background: #fafafa; }}
  h1 {{ font-size: 20px; }}
  .frame {{ position: relative; max-width: 960px; border: 1px solid #ddd; background: #fff; }}
- .frame .layer {{ position: absolute; inset: 0; overflow: hidden; }}
+ .frame .layer {{ position: absolute; inset: 0; clip-path: inset(0 0 0 var(--split, 50%)); }}
  .frame svg {{ display: block; width: 100%; height: auto; }}
+ .frame .handle {{ position: absolute; inset-block: 0; inset-inline-start: var(--split, 50%);
+                   width: 2px; background: #2a78d6; opacity: .75; pointer-events: none; }}
  .key {{ margin-right: 16px; font-size: 12px; }}
  .dot {{ display: inline-block; width: 10px; height: 10px; border-radius: 2px;
         margin-right: 6px; vertical-align: middle; }}
@@ -272,9 +287,10 @@ def _comparison_page(before_svg: str, after_svg: str, change_map: dict, version:
 <h1>{html.escape(m.t("compare_title", version=version))}</h1>
 <div>{legend_html}</div>
 <input type="range" id="slider" min="0" max="100" value="50">
-<div class="frame" id="frame">
+<div class="frame" id="frame" style="--split:50%">
   <div>{before_svg}</div>
-  <div class="layer" id="after" style="width:50%">{after_svg}</div>
+  <div class="layer" id="after">{after_svg}</div>
+  <div class="handle"></div>
 </div>
 <table><thead><tr><th>{html.escape(m.t("th_element"))}</th>
 <th>{html.escape(m.t("th_comment"))}</th>
@@ -282,8 +298,10 @@ def _comparison_page(before_svg: str, after_svg: str, change_map: dict, version:
 <tbody>{''.join(rows) or f'<tr><td colspan="3">{html.escape(m.t("no_changes"))}</td></tr>'}</tbody></table>
 <script>
  const slider = document.getElementById('slider');
- const after = document.getElementById('after');
- slider.addEventListener('input', () => {{ after.style.width = slider.value + '%'; }});
+ const frame = document.getElementById('frame');
+ slider.addEventListener('input', () => {{
+   frame.style.setProperty('--split', slider.value + '%');
+ }});
 </script>
 </body></html>
 """

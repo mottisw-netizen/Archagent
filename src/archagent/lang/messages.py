@@ -251,6 +251,9 @@ ENGLISH: dict[str, str] = {
     "r_model_choice": "the model identified the element: {reasoning}",
     "r_model_declined": "the model could not tell the candidates apart either",
     "attention": "Needs your decision",
+    "err_ambiguous_subject": "the subject matches {count} elements",
+    "err_not_found": "the element {element} is not in the model",
+    "err_no_plot": "the model has no plot boundary, so a setback cannot be measured",
 }
 
 HEBREW: dict[str, str] = {
@@ -477,6 +480,9 @@ HEBREW: dict[str, str] = {
     "r_model_choice": "המודל זיהה את האלמנט: {reasoning}",
     "r_model_declined": "גם המודל לא הצליח להבחין בין המועמדים",
     "attention": "דורש את החלטתך",
+    "err_ambiguous_subject": "הנושא תואם {count} אלמנטים",
+    "err_not_found": "האלמנט {element} אינו קיים במודל",
+    "err_no_plot": "למודל אין גבול מגרש, ולכן לא ניתן למדוד נסיגה",
 }
 
 TABLES = {"en": ENGLISH, "he": HEBREW}
@@ -538,6 +544,21 @@ class Messages:
             return f"{int(round(value))}"
         shown = _units.round_conservative(value, op) if op else round(value, _units.REPORT_DECIMALS)
         return f"{shown:.{_units.REPORT_DECIMALS}f}{self.t('unit.' + unit)}"
+
+    def driver_error(self, error) -> str:
+        """Render a driver failure in this language; unknown ones pass through."""
+        import re
+
+        text = str(error)
+        match = re.search(r"subject matches (\d+) elements", text)
+        if match:
+            return self.t("err_ambiguous_subject", count=match.group(1))
+        match = re.search(r"element not found: '([^']+)'", text)
+        if match:
+            return self.t("err_not_found", element=match.group(1))
+        if "no site plot" in text:
+            return self.t("err_no_plot")
+        return text
 
     def component(self, component: str) -> str:
         return self.t(f"conf.{component}")

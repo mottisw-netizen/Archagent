@@ -47,6 +47,7 @@ from .models import (
     VersionManifest,
     new_id,
 )
+from .payload import run_payload
 from .planner import PlanProposal, Planner
 from .report import build_report
 from .simulate import baseline_status
@@ -85,7 +86,7 @@ class Orchestrator:
                  responder: Responder | None = None, threshold: float = 0.85,
                  output_dir=None, analyzer: CommentAnalyzer | None = None,
                  llm: LLMClient | None = None, language: str = "auto",
-                 effort: str | None = None):
+                 effort: str | None = None, on_event=None):
         self.project_dir = Path(project_dir)
         self.mode = Mode(mode)
         self.threshold = threshold
@@ -99,7 +100,7 @@ class Orchestrator:
         self.run_id = new_id("RUN")
         self.output_dir = Path(output_dir) if output_dir else self.project_dir / "output" / self.run_id
         self.versions = VersionStore(self.project_dir / "versions")
-        self.audit = AuditLog(self.output_dir / "audit.jsonl")
+        self.audit = AuditLog(self.output_dir / "audit.jsonl", listener=on_event)
         self.ledger = ConstraintLedger()
         self.consultation = ConsultationAgent(self.responder, self.m)
         self.driver: DrawingDriver | None = None
@@ -158,6 +159,11 @@ class Orchestrator:
         result.llm = self._llm_summary()
         if result.llm:
             self.audit.write("orchestrator", "llm_usage", result=result.llm)
+        payload_path = self.output_dir / "run_payload.json"
+        payload_path.write_text(
+            json.dumps(run_payload(result, self.m), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8")
+        result.files["run_payload"] = str(payload_path)
         self.audit.write("orchestrator", "run_complete", result=result.validation.result)
         return result
 
