@@ -4,19 +4,32 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Archagent · בדיקת הערות רישוי</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📐</text></svg>">
 </head>
 <body>
 
+<div class="bg-glow" aria-hidden="true"></div>
+
 <header class="topbar">
   <div class="brand">
-    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
-      <rect x="3" y="7" width="26" height="18" rx="2.5" class="mark-sheet"/>
-      <path d="M8 21V13h6.5v8" class="mark-line"/>
-      <path d="M18 21v-5h6" class="mark-line"/>
-      <circle cx="24" cy="12" r="2.6" class="mark-dot"/>
-    </svg>
+    <span class="mark-halo">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="markGrad" x1="0" y1="0" x2="32" y2="32">
+            <stop offset="0" stop-color="var(--accent)"/>
+            <stop offset="1" stop-color="var(--accent-2)"/>
+          </linearGradient>
+        </defs>
+        <rect x="3" y="7" width="26" height="18" rx="2.5" class="mark-sheet"/>
+        <path d="M8 21V13h6.5v8" class="mark-line"/>
+        <path d="M18 21v-5h6" class="mark-line"/>
+        <circle cx="24" cy="12" r="2.6" class="mark-dot"/>
+      </svg>
+    </span>
     <div>
       <strong>Archagent</strong>
       <span>בדיקה ותיקון הערות רישוי</span>
