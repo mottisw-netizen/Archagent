@@ -189,6 +189,8 @@ ENGLISH: dict[str, str] = {
     "dod_original": "The original source file is byte-identical to its ingest checksum.",
     "dod_version": "A new immutable version exists with its manifest and audit log.",
     "dod_previews": "Previews, comparison and highlighted change map are generated.",
+    "dod_change_set": "A change set is written, and every entry names its comment and plan.",
+    "dod_routing": "Every comment routed to an unavailable adapter is an open item naming what is missing.",
     "dod_open_items": "Open items name what is needed and from whom.",
     # previews
     "before": "Before",
@@ -420,6 +422,8 @@ HEBREW: dict[str, str] = {
     "dod_original": "קובץ המקור המקורי זהה בבתים ל-checksum שנרשם בקליטה.",
     "dod_version": "נוצרה גרסה חדשה בלתי ניתנת לשינוי עם מניפסט ויומן ביקורת.",
     "dod_previews": "הופקו תצוגות מקדימות, השוואה ומפת שינויים מסומנת.",
+    "dod_change_set": "נכתב Change Set, וכל רשומה בו מציינת את ההערה והתוכנית שגרמו לה.",
+    "dod_routing": "כל הערה שנותבה למתאם שאינו זמין מופיעה כפריט פתוח שמציין מה חסר.",
     "dod_open_items": "כל פריט פתוח מציין מה נדרש וממי.",
     "before": "לפני",
     "after": "אחרי ({version})",

@@ -445,6 +445,10 @@ class ProjectContext(Serialisable):
     units: str = units.DEFAULT_UNIT
     created_at: str = field(default_factory=now)
     open_items: list[dict] = field(default_factory=list)
+    #: Every source of the package and the adapter that opened it (or did not).
+    sources: list[dict] = field(default_factory=list)
+    #: Which adapter each comment was routed to, and why.
+    routing: list[dict] = field(default_factory=list)
 
     def comment(self, comment_id: str) -> MunicipalComment | None:
         return next((c for c in self.municipal_comments if c.comment_id == comment_id), None)

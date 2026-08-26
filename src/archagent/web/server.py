@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
+from ..adapters import SourceRef, default_registry
 from ..llm import client as llm_client
 from .engines import ClaudeCodeEngine, build_engine
 from .projects import ProjectStore
@@ -86,6 +87,30 @@ async def connect(request: Request) -> dict:
 
 
 # ----------------------------------------------------------------------
+# the CAD host
+# ----------------------------------------------------------------------
+@app.post("/api/cad")
+async def cad_status(request: Request) -> dict:
+    """Is a live CAD host reachable, and what does it have open?
+
+    The architect asks this before starting a run: an answer naming their own
+    project file is the proof that Archagent is talking to the right document.
+    """
+    body = await request.json()
+    reference = str(body.get("source") or "").strip()
+    if not reference:
+        return {"available": False, "reason": "no CAD host given"}
+    source = SourceRef.parse(reference)
+    adapter = default_registry().for_source(source)
+    if adapter is None:
+        raise HTTPException(400, f"no adapter opens {reference}")
+    status = adapter.status(source)
+    return {"available": status.available, "adapter": adapter.name,
+            "reason": status.reason, "capabilities": list(status.capabilities),
+            "disciplines": list(status.disciplines), "detail": status.detail}
+
+
+# ----------------------------------------------------------------------
 # projects
 # ----------------------------------------------------------------------
 @app.get("/api/projects")
@@ -143,6 +168,9 @@ async def start_run(request: Request) -> dict:
         "model": body.get("model"),
         "threshold": body.get("threshold", 0.85),
         "no_llm": bool(body.get("no_llm", False)),
+        # Blank: work on the model in the project. "revit://host:port": work on
+        # the document the architect has open in Revit.
+        "sources": body.get("sources") or body.get("source") or [],
     }
     try:
         engine = build_engine(options["engine"], options)

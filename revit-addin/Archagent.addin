@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Archagent</Name>
+    <Assembly>Archagent\Archagent.Revit.dll</Assembly>
+    <AddInId>7B1E4C2A-3F5D-4A88-9C61-2E0D5B7A9C31</AddInId>
+    <FullClassName>Archagent.Revit.ArchagentApp</FullClassName>
+    <VendorId>ARCH</VendorId>
+    <VendorDescription>Archagent - municipal permit review</VendorDescription>
+  </AddIn>
+</RevitAddIns>

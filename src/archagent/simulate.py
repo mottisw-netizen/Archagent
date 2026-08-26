@@ -29,7 +29,6 @@ class SimulationResult:
     pre_existing_violations: list[ConstraintValidation] = field(default_factory=list)
     spatial_conflicts: list[str] = field(default_factory=list)
     error: str = ""
-    sandbox: DrawingDriver | None = None
 
     @property
     def safe(self) -> bool:
@@ -63,18 +62,28 @@ def baseline_overlaps(driver: DrawingDriver) -> set[str]:
 
 def simulate(driver: DrawingDriver, plan: CorrectionPlan, ledger: ConstraintLedger,
              baseline: dict[str, str] | None = None) -> SimulationResult:
-    sandbox = driver.sandbox()
-    failures = check_preconditions(sandbox, plan)
-    if failures:
-        return SimulationResult(plan.plan_id, False, error="; ".join(failures), sandbox=sandbox)
-    try:
-        changes = apply_plan(sandbox, plan)
-    except DrawingAPIError as error:
-        return SimulationResult(plan.plan_id, False, error=str(error), sandbox=sandbox)
+    """Apply a plan where it cannot be kept, measure it there, and discard it.
 
+    The sandbox is a context manager because a live host cannot fork a
+    document: there the plan is applied inside a transaction that is rolled
+    back on exit.  Everything that must be measured is measured inside the
+    block, before the rollback.
+    """
+    # Measured before the sandbox opens: with a live host the sandbox shares the
+    # document, so anything read while it is open already includes the change.
     existing_overlaps = set(find_overlaps(driver))
-    new_overlaps = [item for item in find_overlaps(sandbox) if item not in existing_overlaps]
-    results = ledger.evaluate(sandbox)
+    with driver.sandbox() as sandbox:
+        failures = check_preconditions(sandbox, plan)
+        if failures:
+            return SimulationResult(plan.plan_id, False, error="; ".join(failures))
+        try:
+            changes = apply_plan(sandbox, plan)
+        except DrawingAPIError as error:
+            return SimulationResult(plan.plan_id, False, error=str(error))
+
+        new_overlaps = [item for item in find_overlaps(sandbox) if item not in existing_overlaps]
+        results = ledger.evaluate(sandbox)
+
     failures = [r for r in results if r.status == "fail"]
     # A constraint that was already failing before the change is not this plan's
     # doing: it is reported, but it never blocks the plan (SKILL.md 9.1, 14.2).
@@ -97,5 +106,5 @@ def simulate(driver: DrawingDriver, plan: CorrectionPlan, ledger: ConstraintLedg
     return SimulationResult(
         plan_id=plan.plan_id, ok=True, changes=changes, results=results,
         violations=violations, regressions=regressions, critical_violations=critical,
-        pre_existing_violations=pre_existing, spatial_conflicts=new_overlaps, sandbox=sandbox,
+        pre_existing_violations=pre_existing, spatial_conflicts=new_overlaps,
     )

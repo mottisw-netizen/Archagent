@@ -238,3 +238,57 @@ def test_claude_code_availability_is_reported_not_assumed():
     ok, reason = ClaudeCodeEngine.available()
     assert isinstance(ok, bool)
     assert ok or reason
+
+
+# ----------------------------------------------------------------------
+# the live CAD host
+# ----------------------------------------------------------------------
+def test_the_cad_check_reports_an_unreachable_host_without_failing(client):
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    body = client.post("/api/cad", json={"source": f"revit://127.0.0.1:{port}"}).json()
+    assert body["available"] is False
+    assert "Revit" in body["reason"] and body["adapter"] == "revit"
+
+
+def test_the_cad_check_names_the_open_document(client, tmp_path):
+    """What the architect needs to see before letting the agent edit anything."""
+    import shutil
+    import socket
+    from pathlib import Path
+
+    from archagent.drawing.mock_host import serve
+
+    model = tmp_path / "open.json"
+    shutil.copyfile(Path("examples/project/source/project.json"), model)
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    host = serve(model, port=port)
+    try:
+        body = client.post("/api/cad", json={"source": f"revit://127.0.0.1:{port}"}).json()
+    finally:
+        host.shutdown()
+    assert body["available"] is True
+    assert body["detail"]["document"] == "open.json"
+    assert body["detail"]["elements"] > 0
+    assert "edit" in body["capabilities"]
+
+
+def test_an_empty_cad_field_means_the_project_model(client):
+    assert client.post("/api/cad", json={"source": ""}).json()["available"] is False
+
+
+def test_a_source_that_no_adapter_opens_is_rejected(client):
+    assert client.post("/api/cad", json={"source": "survey.las"}).status_code == 400
+
+
+def test_a_run_carries_the_chosen_source_to_the_engine(client):
+    started = client.post("/api/runs", json={
+        "project_id": "example:project_he", "mode": "autonomous", "no_llm": True,
+        "source": "revit://127.0.0.1:8735",
+    }).json()
+    assert started["options"]["sources"] == "revit://127.0.0.1:8735"

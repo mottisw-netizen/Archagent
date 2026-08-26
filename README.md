@@ -46,6 +46,7 @@ Claude is used automatically when credentials are present. Useful flags:
 | `--model`, `--effort` | default `claude-opus-5` at `high` effort |
 | `--llm-cache DIR` | cache answers on disk, so a re-run costs nothing |
 | `--lang he\|en\|auto` | report language; `auto` follows the comments |
+| `--source REF` | a file, or a live CAD host (`revit://127.0.0.1:8735`); repeatable |
 
 Without installing: `PYTHONPATH=src python3 -m archagent.cli run examples/project_he`.
 
@@ -58,6 +59,7 @@ The example run produces, under `examples/project/`:
 | `output/<run>/correction_report.md` | the correction report (SKILL.md 15) |
 | `output/<run>/compare_before_after.html` | before/after slider with a change table |
 | `output/<run>/preview_v2_changes.svg` | highlighted change map (colour **and** text tag) |
+| `output/<run>/change_set.json` | the Diff / Change Set: what changed, by host element id |
 | `output/<run>/validation_report.json` | measured constraint and comment validation |
 | `output/<run>/project_context.json` | the full run state, resumable and auditable |
 
@@ -78,6 +80,11 @@ A Hebrew, right-to-left workspace over the same agent:
   decision, the run *stops*. The question appears with the comment, the
   proposal, the measured consequences and the alternatives; the pipeline waits
   on that answer before it touches the model.
+- **A live drawing, optionally.** Leave the CAD field blank to work on the
+  model inside the project, or enter `revit://127.0.0.1:8735` to work on the
+  document the architect has open in Revit. **Check connection** answers with
+  the open document's own name, the Revit version and the element count - the
+  proof it is the right file before anything is edited.
 - **Results** - KPI tiles, a status bar in the reserved status palette (every
   segment labelled - colour never carries the meaning alone), per-comment cards
   with the measured evidence and a confidence meter against the threshold, the
@@ -208,7 +215,10 @@ the report says so rather than padding the result.
 | 10 Consultation | `archagent/consult.py` |
 | 11 Execution | `archagent/execute.py` |
 | 12 Tool interface | `archagent/drawing/api.py`, `archagent/drawing/json_model.py` |
+| 12 Live CAD host, wire contract | `archagent/drawing/protocol.py`, `drawing/revit.py`, `drawing/mock_host.py`, `revit-addin/` |
+| 12 Multi-discipline routing | `archagent/adapters/` |
 | 13 Preview and highlights | `archagent/preview.py` |
+| 13.2, 16 Diff / Change Set | `archagent/changeset.py` |
 | 14 Validation | `archagent/validate.py` |
 | 15 Correction report | `archagent/report.py` |
 | 16 Safety, versioning, audit | `archagent/versioning.py`, `archagent/audit.py` |
@@ -233,20 +243,96 @@ the report says so rather than padding the result.
 - **`Resolved` requires evidence** - a measurement from a measurement tool,
   recorded with the required value and the comparison.
 - **The original file is never opened for write**, and its checksum is
-  re-verified at the end of every run.
+  re-verified at the end of every run. Against a live host, `save_as` refuses a
+  path equal to the open document - a version is always a new file.
+- **A live plan is atomic.** The host applies the whole action list in one
+  transaction group or rolls all of it back; a half-applied plan cannot exist.
 - **Ambiguity is never resolved silently** - it consults or escalates.
 - **The model never produces a number.** Everything it returns is validated
   against what the drawing layer can measure before it is used.
 
-## Connecting a real CAD/BIM model
+## Live CAD: Revit first, adapters underneath
 
-`JSONModelDriver` is a reference implementation over a plain JSON plan model
-(axis-aligned geometry, sheets, schedules) so the pipeline runs and is testable
-without a CAD seat. To drive Revit/AutoCAD/IFC, implement
-`archagent.drawing.api.DrawingDriver` against the host API and pass it in;
-nothing above the driver layer changes. The contract each method must honour -
-including the `before`/`after` change record and the measurement basis - is
-documented in `api.py`.
+A permit package is never one file. The architectural model is Revit; traffic,
+roads and drainage arrive as consultant DWGs; the environmental appendix is a
+document. So the agent does not talk to Revit - it talks to **adapters**, and
+one municipal comment is routed to whichever adapter holds the element it names.
+
+```
+                     ┌──────────────┐
+   comment ─────────▶│    Router    │──▶ discipline + the source that holds it
+                     └──────┬───────┘
+              ┌─────────────┼──────────────┬───────────────┐
+        RevitAdapter   JsonAdapter    DwgAdapter      PdfAdapter
+        live, edits    reference      declared        read + markup
+        the document   model          (not yet)       never edits
+```
+
+| Adapter | Disciplines | Can | State |
+| --- | --- | --- | --- |
+| `revit` | architecture, structure, accessibility, fire | read, measure, edit, preview, version | live, over the add-in |
+| `json` | architecture, traffic | read, measure, edit, preview, version | the reference driver |
+| `dwg` | traffic, roads, drainage, landscape | read, markup | declared; states what it needs |
+| `pdf` | documents, environment | read, markup | never edits a document |
+
+An adapter that cannot serve a source says exactly what is missing, and the
+comments routed to it become **open items with a reason** - they do not fall
+through to the architectural model and they do not disappear.
+
+### Revit
+
+`revit-addin/` is a Revit 2024 add-in (C#) that exposes the **active document**
+over a small loopback HTTP protocol; `archagent.drawing.revit.RevitDriver` is
+the client half. See [`revit-addin/README.md`](revit-addin/README.md) for the
+build, the install path, and an explicit account of what is and is not verified.
+
+```bash
+# in Revit: Archagent tab → Start host
+archagent run examples/project_he --source revit://127.0.0.1:8735
+```
+
+Three things the Revit API forces, which the design absorbs so nothing above
+the driver has to know about them:
+
+* **A plan is applied as one batch.** Revit cannot hold a transaction between
+  API calls, so `authorised(plan_id)` buffers the plan and sends it in one
+  `/apply`; the host commits it as one transaction group - one undo step for the
+  architect - or rolls the whole group back. A half-applied plan cannot exist.
+* **Simulation never touches the open document.** The driver snapshots the
+  model and simulates locally; the live document is written once, after the plan
+  has been simulated and (in consultation mode) approved.
+* **Ids are `UniqueId`,** and every length crosses the wire in metres. Revit's
+  decimal feet stop inside the add-in.
+
+`archagent.drawing.protocol` is the single definition of that wire contract, and
+`archagent.drawing.mock_host` implements it over a JSON model - both the test
+double and the executable specification the C# is written against:
+
+```bash
+archagent-host examples/project_he/source/project.json --port 8735
+archagent run examples/project_he --source revit://127.0.0.1:8735
+```
+
+A full pipeline run against that live host produces results identical to the
+file-based run; the tests assert it.
+
+### The Diff / Change Set
+
+Every run writes `output/<run>/change_set.json`: each element the run touched,
+by the id the *host* uses, with before/after per property, the comment that
+demanded it, the plan that produced it, the geometry delta, and the constraints
+the run moved. It is what a CAD tool consumes - and against a live host the
+agent also asks the host to **select those elements**, so the architect sees the
+diff highlighted in Revit itself, not only in the rendered preview.
+
+### Another CAD tool
+
+Implement `archagent.adapters.base.BaseAdapter` (and, for a live tool, the host
+protocol) and register it. Nothing above the adapter layer changes. The contract
+each driver method must honour - including the `before`/`after` change record
+and the measurement basis - is documented in `drawing/api.py`; `JsonAdapter` is
+the worked example, and `DwgAdapter` shows how to declare an adapter that is not
+implemented yet without pretending otherwise.
 
 PDF comment text is read via `pdftotext` if present, or a hook you register at
 `archagent.ingest.PDF_TEXT_EXTRACTOR`. If neither is available, the file is
@@ -256,12 +342,15 @@ what a comment said.
 ## Tests
 
 ```bash
-python3 -m pytest -q      # 153 tests, no network access required
+python3 -m pytest -q      # 209 tests, no network access required
 ```
 
 The Claude paths are covered with scripted clients: invalid readings, the
 cross-check outcomes, disambiguation limits, and a full Hebrew run with the
-model in the loop and another with it unavailable.
+model in the loop and another with it unavailable. The live-CAD path runs
+against a real HTTP host on loopback, so the driver, the batching and the error
+mapping are exercised, not mocked - and two tests read the C# sources to fail
+when the add-in and `protocol.py` drift apart.
 
 ## Scope
 

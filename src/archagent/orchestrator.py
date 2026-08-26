@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import lang
+from . import changeset
 from . import preview as preview_module
 from .audit import AuditLog
 from .comments import CommentAnalyzer
@@ -25,10 +26,10 @@ from .constraints import (
     find_conflicts,
 )
 from .consult import ConsultationAgent, Responder, apply_decision, auto_approve, defer
-from .drawing.api import DrawingDriver
-from .drawing.json_model import JSONModelDriver
+from .drawing.api import DrawingAPIError, DrawingDriver
 from .execute import ExecutionAgent
 from .graph import build_graph, impact_set
+from .adapters import AdapterRegistry, Router, SourceRef, Workspace, default_registry
 from .ingest import Ingestor
 from .lang.messages import Messages
 from .llm.client import LLMClient
@@ -70,6 +71,8 @@ class RunResult:
     files: dict[str, str] = field(default_factory=dict)
     graph: dict = field(default_factory=dict)
     impact: list[str] = field(default_factory=list)
+    #: The Diff / Change Set: what changed, by the host's own element ids.
+    change_set: dict = field(default_factory=dict)
     definition_of_done: list[tuple[str, bool]] = field(default_factory=list)
     report: str = ""
     consulted: set[str] = field(default_factory=set)
@@ -86,7 +89,9 @@ class Orchestrator:
                  responder: Responder | None = None, threshold: float = 0.85,
                  output_dir=None, analyzer: CommentAnalyzer | None = None,
                  llm: LLMClient | None = None, language: str = "auto",
-                 effort: str | None = None, on_event=None):
+                 effort: str | None = None, on_event=None,
+                 sources: list | None = None,
+                 registry: AdapterRegistry | None = None):
         self.project_dir = Path(project_dir)
         self.mode = Mode(mode)
         self.threshold = threshold
@@ -104,6 +109,12 @@ class Orchestrator:
         self.ledger = ConstraintLedger()
         self.consultation = ConsultationAgent(self.responder, self.m)
         self.driver: DrawingDriver | None = None
+        #: Every drawing of the package, opened through its adapter.
+        self.registry = registry or default_registry()
+        self.workspace = Workspace(self.registry)
+        self.router = Router(self.workspace)
+        self.sources = [source if isinstance(source, SourceRef) else SourceRef.parse(str(source))
+                        for source in (sources or [])]
         self._simulated: set[str] = set()
 
     # ------------------------------------------------------------------
@@ -122,8 +133,9 @@ class Orchestrator:
         baseline = baseline_status(self.driver, self.ledger)
         self.audit.write("orchestrator", "baseline", result=baseline)
 
+        blocked = self._route(context)
         self._map_comments(context)
-        proposals = self._plan(context, baseline)
+        proposals = self._plan(context, baseline, blocked)
         result.plans = [proposal.plan for proposal in proposals.values() if proposal.plan]
 
         changes, decisions, consulted = self._decide_and_execute(context, proposals, baseline)
@@ -145,7 +157,7 @@ class Orchestrator:
 
         self._record_open_items(context, result)
         result.version = self._store_new_version(context, result, parent)
-        result.files = self._write_artefacts(context, result, parent)
+        result.files = self._write_artefacts(context, result, parent, baseline)
         result.definition_of_done = self._definition_of_done(context, result)
         narrative = self._narrative(context, result)
         result.report = build_report(
@@ -193,15 +205,33 @@ class Orchestrator:
                 context.add_open_item(entry.file,
                                       self.m.t("r_file_unreadable", notes=entry.notes),
                                       self.m.t("n_readable_copy"))
-        if models:
-            self.driver = JSONModelDriver.load(models[0].file)
-            context.source_format = "JSON"
-            context.drawing_elements = self.driver.elements()
-            self._source_entry = models[0]
+        sources = list(self.sources)
+        if not sources and models:
+            sources = [SourceRef.parse(models[0].file)]
+        for source in sources:
+            entry = self.workspace.add(source)
+            self.audit.write("orchestrator", "source_opened",
+                             params=source.to_dict(),
+                             result=entry.adapter_name if entry.available else entry.error)
+            if not entry.available:
+                context.add_open_item(Path(source.location).name or source.location,
+                                      entry.error or self.m.t("r_no_model"),
+                                      self.m.t("n_driver"))
+        context.sources = self.workspace.to_dict()
+
+        self.driver = self.workspace.primary()
+        self._source_entry = models[0] if models else None
+        if self.driver is not None:
+            first = next(entry for entry in self.workspace.opened if entry.driver is self.driver)
+            context.source_format = first.adapter_name.upper()
+            context.drawing_elements = getattr(self.driver, "elements", list)()
+            if first.source.kind == "host":
+                # A live host owns the document; the run edits it in place and
+                # versions by exporting, so there is no ingest checksum to hold.
+                self._source_entry = None
         else:
             context.execution_mode = "markup_only"
             context.source_format = "PDF_ONLY"
-            self._source_entry = None
             context.add_open_item("source model", self.m.t("r_no_model"),
                                   self.m.t("n_driver"))
         self._attach_interpreter()
@@ -305,6 +335,28 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # steps 4-7
     # ------------------------------------------------------------------
+    def _route(self, context: ProjectContext) -> set[str]:
+        """Decide which adapter each comment belongs to (SKILL.md 2.1).
+
+        A comment for a discipline whose adapter is unavailable - traffic on a
+        consultant DWG, for instance - is not planned and not silently dropped:
+        it becomes an open item naming the adapter and what it needs.
+        """
+        blocked: set[str] = set()
+        for comment in context.municipal_comments:
+            routing = self.router.route(comment)
+            context.routing.append(routing.to_dict())
+            self.audit.write("orchestrator", "routed",
+                             params={"comment_id": comment.comment_id,
+                                     "discipline": routing.discipline},
+                             result=routing.source.adapter_name if routing.routed
+                             else routing.reason)
+            if not routing.routed and routing.reason:
+                blocked.add(comment.comment_id)
+                context.add_open_item(comment.comment_id, routing.reason,
+                                      routing.needed or self.m.t("n_human_decision"))
+        return blocked
+
     def _map_comments(self, context: ProjectContext) -> None:
         disambiguator = (ElementDisambiguator(self.llm, self.effort)
                          if self.llm is not None else None)
@@ -317,10 +369,15 @@ class Orchestrator:
                              params={"comment_id": comment.comment_id},
                              result=mapping.resolution.value)
 
-    def _plan(self, context: ProjectContext, baseline: dict[str, str]) -> dict[str, PlanProposal]:
+    def _plan(self, context: ProjectContext, baseline: dict[str, str],
+              blocked: set[str] | None = None) -> dict[str, PlanProposal]:
         planner = Planner(self.driver, self.ledger, baseline, self.threshold, self.m)
+        blocked = blocked or set()
         proposals: dict[str, PlanProposal] = {}
         for comment in context.municipal_comments:
+            if comment.comment_id in blocked:
+                # Routed to an adapter that cannot act; already an open item.
+                continue
             mapping = context.mapping(comment.comment_id)
             proposal = planner.plan_for(comment, mapping)
             proposals[comment.comment_id] = proposal
@@ -498,14 +555,21 @@ class Orchestrator:
         return version
 
     def _write_artefacts(self, context: ProjectContext, result: RunResult,
-                         parent: str) -> dict[str, str]:
+                         parent: str, baseline: dict[str, str] | None = None) -> dict[str, str]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         change_map = preview_module.build_change_map(result.changes, result.impact,
                                                      result.validation)
         before_model = json.loads(self.versions.model_path(parent).read_text(encoding="utf-8"))
-        after_model = self.driver.model
+        after_model = self.driver.plan_model()
         files = preview_module.write_previews(self.output_dir, before_model, after_model,
                                               change_map, result.version, self.m)
+        result.change_set = changeset.build(
+            result.changes, before_model, after_model, result.version or "", parent,
+            context.municipal_comments, result.validation, run_id=self.run_id,
+            source=context.sources[0] if context.sources else {},
+            baseline=baseline, messages=self.m)
+        files["change_set"] = str(changeset.write(self.output_dir, result.change_set))
+        self._highlight(result.change_set["highlight"])
         context_path = self.output_dir / "project_context.json"
         context_path.write_text(context.to_json() + "\n", encoding="utf-8")
         files["project_context"] = str(context_path)
@@ -522,6 +586,19 @@ class Orchestrator:
                             for item in self.consultation.transcript), encoding="utf-8")
             files["consultation"] = str(transcript)
         return files
+
+    def _highlight(self, element_ids: list[str]) -> None:
+        """Ask a live host to select what changed, so the architect sees it.
+
+        A host that cannot do it says so and the run carries on: highlighting is
+        a courtesy, and the change set is the artefact that matters.
+        """
+        if not element_ids or not hasattr(self.driver, "highlight"):
+            return
+        try:
+            self.driver.highlight(element_ids)
+        except DrawingAPIError as error:
+            self.audit.write("orchestrator", "highlight_skipped", result=str(error))
 
     def _record_open_items(self, context: ProjectContext, result: RunResult) -> None:
         validation = result.validation
@@ -576,6 +653,14 @@ class Orchestrator:
             (self.m.t("dod_version"), bool(result.version)),
             (self.m.t("dod_previews"),
              "comparison" in result.files and "change_map" in result.files),
+            (self.m.t("dod_change_set"),
+             "change_set" in result.files and all(
+                 change["comment_id"] and change["plan_id"]
+                 for element in result.change_set.get("elements", [])
+                 for change in element["properties"])),
+            (self.m.t("dod_routing"), all(
+                routing["routed"] or (routing["reason"] and routing["needed"])
+                for routing in context.routing)),
             (self.m.t("dod_open_items"),
              all(item["needed"] for item in context.open_items)),
         ]

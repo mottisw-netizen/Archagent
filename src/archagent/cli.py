@@ -47,6 +47,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         args.project, mode=args.mode, threshold=args.threshold,
         responder=_responder(args.responder, args.answers), output_dir=args.output,
         llm=_llm(args), language=args.lang, effort=args.effort,
+        sources=args.source,
     )
     result = orchestrator.run()
     validation = result.validation
@@ -163,6 +164,9 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--output", help="output directory")
     run.add_argument("--lang", choices=("auto", "he", "en"), default="auto",
                      help="report language (default: the language of the comments)")
+    run.add_argument("--source", action="append", default=[], metavar="REF",
+                     help="a drawing to work on: a file path, or a live CAD host "
+                          "such as revit://127.0.0.1:8735 (repeatable)")
     _add_llm_arguments(run)
     run.set_defaults(func=cmd_run)
 

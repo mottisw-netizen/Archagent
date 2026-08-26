@@ -900,6 +900,46 @@ Contract:
 - Measurement tools state their mode (edge / centerline / clear) - a clearance measured differently from the way the municipality measures it is a wrong answer with a right number.
 - Any tool may return `not_found`, `ambiguous`, `unsupported`, or `api_error`; each is handled per §21, never ignored.
 
+### 12.2 Adapters: one agent, many planning tools
+
+A permit package is not one drawing. The architectural model is Revit; traffic, roads, site development and drainage arrive as consultant DWGs; environmental and area appendices are documents. One municipal comment can land in any of them.
+
+The agent therefore never talks to a CAD program. It talks to an **adapter**, which opens one kind of source and returns a driver honouring §12.1.
+
+```text
+PlanningAgent
+  └ Router            decides discipline + which open source holds the element
+      ├ RevitAdapter      architecture, structure, accessibility, fire   read measure edit preview version
+      ├ DwgAdapter        traffic, roads, drainage, landscape            read markup      (AutoCAD / Civil 3D)
+      ├ JsonAdapter       the reference model                            read measure edit preview version
+      └ PdfAdapter        documents, environment                         read markup      (never edits)
+  └ ValidationEngine  measures the result through whichever adapter produced it
+```
+
+Rules:
+
+- An adapter **states its capabilities** (`read`, `measure`, `edit`, `preview`, `version`, `markup`) rather than having them assumed. A comment that needs `edit` from an adapter that only has `markup` is answered with a measured instruction list, not with a silent no-op.
+- An adapter that cannot serve a source returns **what is missing, in words a person can act on** - not a broken driver, and never an exception that stops the run.
+- A comment routed to an unavailable adapter becomes an **open item with that reason**. It does not fall through to the architectural model, and it does not disappear.
+- Discipline comes from the department that wrote the comment; the *source* comes from which open drawing actually contains the element it names.
+- Adding a CAD tool is adding an adapter. Nothing above the adapter layer - planner, constraint engine, validator, report - may change.
+
+### 12.3 Live hosts
+
+A file-based driver can copy a model to simulate on. A live host cannot: the document is the architect's, open on their screen. Three rules follow, and they are the whole difference:
+
+1. **A plan is applied as one batch.** A CAD API that only permits a transaction inside a single call cannot hold one open across a conversation. The approved plan is therefore sent whole: the host applies every action in one transaction group and commits, or rolls the group back and reports which action failed. **A half-applied plan must be impossible.** It is also one undo step for the architect.
+2. **Simulation never touches the live document.** The driver snapshots the model - elements, sheets and schedules - simulates the plan on the snapshot, and measures there. The live document is written once, after the plan has been simulated and, in consultation mode, approved. Whatever the snapshot cannot capture is caught afterwards: §14 re-measures through the host.
+3. **The open document is never a write target.** Versioning saves *a new file*; a host must refuse a `save_as` path equal to the document it has open.
+
+The wire contract is defined in one place and mirrored by every host. It carries a version; a client requires the same major version and tolerates added endpoints and fields.
+
+- Every length is metres, every area m². The host converts from its own internal units at its boundary.
+- Element ids on the wire are the host's **stable** ids (in Revit, `UniqueId` - not `ElementId`, which does not survive a session).
+- The host reports what it has open - document name, version, element count, read-only - so a person can confirm it is the right file before anything is edited.
+- Creating elements is refused by a live host: a new element needs a family, a type, a level and a host object - decisions belonging to the architect. The agent reports the need instead of inventing geometry.
+- One endpoint changes the view rather than the document: highlighting the change set in the host's own UI (§13.3). It needs no transaction and no plan, and it must not be able to alter the model.
+
 ---
 
 ## 13. Preview and Highlight System
@@ -973,7 +1013,25 @@ Parking P12:
     preview_v2_changes.pdf          same set with highlights + legend
     compare_v1_v2/                  per-sheet before / after / overlay images
     change_map.json                 highlight → element → comment mapping
+    change_set.json                 the Diff / Change Set (§13.3)
 ```
+
+### 13.3 The Diff / Change Set
+
+The report explains the run to a person; the preview shows it to an eye. The change set is the third artefact, and the only one a CAD tool can act on. It is written on every run, including a run that changed nothing - an empty diff is an answer, a missing file is a question.
+
+It records, for the version produced and the version it came from:
+
+- every element the run touched, **by the id the host uses**, with its category, label and sheet;
+- per property: `before`, `after`, the tool that changed it, and the `plan_id` and `comment_id` behind it - a change that cannot name both is untraceable and must not be produced;
+- the geometry delta, so a reader can draw the highlight without opening the CAD tool;
+- the comments the run answered, each with its §14.1 status and evidence;
+- the constraints the run **moved** - resolved here, or regressed here - not every rule that already passed and still passes;
+- the flat list of element ids to highlight, because that is the one part a CAD tool consumes without parsing the rest.
+
+It is assembled from the change records the execution layer returned, not re-derived from geometry: those records are what the drawing itself reported after the change, and geometry that disagrees with them is a defect to surface, not a difference to smooth over.
+
+Against a live host (§12.3) the agent additionally asks the host to **select those elements in its own UI**, so the architect sees the diff highlighted in the CAD tool rather than only in a rendered preview. A host that cannot do it says so; the run continues, because the change set is the artefact that matters and highlighting is a courtesy.
 
 ---
 
@@ -1245,6 +1303,7 @@ The user must be able to:
 - A new version is written to a new path. Versions are never deleted or rewritten, including failed ones - a failed version is kept and marked `validation_result: "failed"`.
 - Write only inside `/project/versions/` and `/project/output/`. Never write into `/project/source/`, `/project/municipal_comments/` or `/project/constraints/`.
 - Rollback means "deliver the parent version", not "undo edits in place".
+- Against a live host (§12.3) the same rules bind the *host*, not just the caller: a `save_as` whose target equals the open document is refused, so a version is always a new file and the architect's own file is never written behind them. The document in the host is edited - that is the point of a live run - but saving it remains the architect's action.
 
 ### 16.2 Audit log
 
@@ -1482,6 +1541,8 @@ A run may be reported as complete only when all of the following hold:
 [ ] The original source file is byte-identical to its ingest checksum.
 [ ] A new immutable version exists with its version.json and audit log.
 [ ] Previews, comparison and highlighted change map are generated.
+[ ] A change set is written, and every entry in it names its comment and plan.
+[ ] Every comment routed to an unavailable adapter is an open item naming what is missing.
 [ ] The correction report lists resolved, partial, unresolved and open items honestly.
 [ ] Open items name what is needed and from whom.
 [ ] The sign-off block states that a licensed professional must approve.
@@ -1504,3 +1565,6 @@ Any unchecked item is stated at the top of the report as the reason the run is p
 | Degraded / markup mode | PDF-only operation: findings and instructions are produced, no model is edited. |
 | Regression | A constraint that passed before the change and fails after it. |
 | Version | An immutable saved state of the model with its manifest, audit log and validation result. |
+| Adapter | The layer that opens one kind of source - a live CAD host, a file, a document - and returns a driver honouring §12.1. |
+| Live host | A CAD program with the agent's add-in loaded, serving the document the architect currently has open. |
+| Change set (Diff) | The machine-readable record of what one run changed, by the host's own element ids (§13.3). |

@@ -183,6 +183,9 @@ class JSONModelDriver(DrawingDriver):
     def elements(self) -> list[dict]:
         return copy.deepcopy(self.model["elements"])
 
+    def plan_model(self) -> dict:
+        return copy.deepcopy(self.model)
+
     def schedules(self) -> dict:
         return copy.deepcopy(self.model.get("schedules", {}))
 

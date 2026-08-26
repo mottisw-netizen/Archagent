@@ -174,11 +174,46 @@ class DrawingDriver(abc.ABC):
 
     @abc.abstractmethod
     def sandbox(self) -> "DrawingDriver":
-        """An isolated copy used for simulation; never shares state."""
+        """A driver for simulation, to be used as a context manager.
+
+        A file-backed driver returns an isolated copy.  A live host cannot fork
+        a document, so it returns a driver bound to a transaction that is rolled
+        back on close - which is why callers must close it (SKILL.md 9.1).
+        """
 
     @abc.abstractmethod
     def save_as(self, path) -> str:
         ...
+
+    def plan_model(self) -> dict:
+        """The plan the previews and the local metrics work from.
+
+        A file driver returns its own document; a live host is asked for its
+        elements and they are shaped the same way, so nothing above this layer
+        needs to know which kind of driver it holds.
+        """
+        elements = getattr(self, "elements", None)
+        index = elements() if elements is not None else []
+        schedules = getattr(self, "schedules", None)
+        model: dict = {"elements": index, "site": {},
+                       "sheets": self.sheets(),
+                       "schedules": schedules() if schedules is not None else {}}
+        plot = next((element for element in index
+                     if str(element.get("type", "")).casefold() in ("site", "plot", "boundary")),
+                    None)
+        if plot and plot.get("geometry"):
+            model["site"] = {"plot": plot["geometry"]}
+        return model
+
+    def close(self) -> None:
+        """Release whatever the driver holds. A file driver holds nothing."""
+
+    def __enter__(self) -> "DrawingDriver":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> bool:
+        self.close()
+        return False
 
     def log(self, tool: str, params: dict, result: Any = "ok") -> None:
         self.call_log.append({"tool": tool, "params": params, "result": result, "plan_id": self._plan_id})

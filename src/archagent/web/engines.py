@@ -107,6 +107,7 @@ class PipelineEngine:
             llm=llm,
             effort=options.get("effort"),
             on_event=lambda record: _emit_audit(run, record),
+            sources=_sources(options),
         )
         result = orchestrator.run()
         run.language = result.language
@@ -351,6 +352,19 @@ def _value(value) -> str:
     if isinstance(value, list):
         return f"{len(value)} שורות"
     return str(value)
+
+
+def _sources(options: dict) -> list[str]:
+    """Where the drawing lives: nothing (the project's own model), or a live host.
+
+    A blank field means "use the file in the project", which is what the demo
+    does. ``revit://127.0.0.1:8735`` means the architect has Revit open with the
+    add-in loaded, and the run edits that document.
+    """
+    raw = options.get("sources") or options.get("source") or []
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.split(",")]
+    return [value for value in (str(item).strip() for item in raw) if value]
 
 
 def _build_llm(options: dict):

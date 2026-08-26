@@ -66,6 +66,8 @@ function bindControls() {
   $('#connection-chip').addEventListener('click', () => $('#connect-dialog').showModal());
   $('#save-key').addEventListener('click', saveKey);
   $('#engine').addEventListener('change', updateEngineNote);
+  $('#cad-check').addEventListener('click', checkCad);
+  $('#cad-source').addEventListener('change', checkCad);
   $('#tabs').addEventListener('click', (event) => {
     const button = event.target.closest('button[data-tab]');
     if (button) selectTab(button.dataset.tab);
@@ -124,6 +126,38 @@ function updateEngineNote() {
     notes.push('אין חיבור לשירות של Claude — ההרצה תיפול חזרה לפרסר הדטרמיניסטי.');
   }
   $('#engine-note').textContent = notes.join(' ');
+}
+
+/* ------------------------------------------------------------ live CAD */
+async function checkCad() {
+  const source = $('#cad-source').value.trim();
+  const status = $('#cad-status');
+  if (!source) {
+    status.className = 'cad-status muted';
+    status.textContent = 'ריק = המודל שבתוך הפרויקט. כתובת = המסמך הפתוח ברוויט, דרך התוסף.';
+    return;
+  }
+  status.className = 'cad-status muted';
+  status.textContent = 'בודק…';
+  try {
+    const result = await api.post('/api/cad', { source });
+    if (result.available) {
+      const detail = result.detail || {};
+      // Naming the open document is the proof it is the right one.
+      const parts = [detail.document || result.adapter];
+      if (detail.host_version) parts.push(detail.host_version);
+      if (detail.elements) parts.push(detail.elements + ' אלמנטים');
+      if (detail.read_only) parts.push('לקריאה בלבד');
+      status.className = 'cad-status ok';
+      status.textContent = '✓ מחובר · ' + parts.join(' · ');
+    } else {
+      status.className = 'cad-status warn';
+      status.textContent = '⚠ ' + (result.reason || 'לא זמין');
+    }
+  } catch (error) {
+    status.className = 'cad-status warn';
+    status.textContent = '⚠ ' + error.message;
+  }
 }
 
 /* ------------------------------------------------------------ projects */
@@ -228,6 +262,7 @@ async function startRun() {
       language: $('#language').value,
       effort: $('#effort').value || null,
       no_llm: $('#no-llm').checked,
+      source: $('#cad-source').value.trim(),
     });
     openRun(run.run_id);
     loadRuns();
