@@ -9,11 +9,31 @@ from pathlib import Path
 
 from . import units
 from .comments import CommentAnalyzer
+from .llm import client as llm_client
+from .llm.interpret import LLMCommentInterpreter
 from .constraints import ConstraintLedger, constraints_from_document
 from .consult import ScriptedResponder, auto_approve, cli_responder, defer
 from .drawing.json_model import JSONModelDriver
 from .ingest import Ingestor
 from .orchestrator import Orchestrator
+
+
+def _llm(args: argparse.Namespace):
+    """Build the Claude client unless the user asked for rules only."""
+    if getattr(args, "no_llm", False):
+        return None
+    required = bool(getattr(args, "llm", False))
+    client = llm_client.from_env(model=getattr(args, "model", None),
+                                 effort=getattr(args, "effort", None),
+                                 cache_dir=getattr(args, "llm_cache", None),
+                                 required=required)
+    if client is None and required:
+        raise SystemExit("no Anthropic credentials found: set ANTHROPIC_API_KEY "
+                         "or run `ant auth login`")
+    if client is None:
+        print("! no Anthropic credentials found - falling back to the rule parser "
+              "(pass --no-llm to silence this)", file=sys.stderr)
+    return client
 
 
 def _responder(name: str, answers: str | None):
@@ -26,6 +46,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     orchestrator = Orchestrator(
         args.project, mode=args.mode, threshold=args.threshold,
         responder=_responder(args.responder, args.answers), output_dir=args.output,
+        llm=_llm(args), language=args.lang, effort=args.effort,
     )
     result = orchestrator.run()
     validation = result.validation
@@ -39,6 +60,16 @@ def cmd_run(args: argparse.Namespace) -> int:
     for status, count in counts.items():
         print(f"  {status:<{width}}  {count}")
     print()
+    if result.llm:
+        usage = result.llm.get("usage", {})
+        tokens = ", ".join(f"{k.replace('_tokens', '')} {v:,}" for k, v in sorted(usage.items()))
+        print(f"  model           : {result.llm['model']} "
+              f"({result.llm['calls']} calls{', ' + tokens if tokens else ''})")
+        for failure in result.llm.get("failures", []):
+            print(f"      ! {failure}")
+    else:
+        print("  model           : none (deterministic parser only)")
+    print(f"  language        : {result.language}")
     print(f"  changes applied : {len(result.changes)}")
     print(f"  validation      : {validation.result}")
     print(f"  open items      : {len(result.context.open_items)}")
@@ -56,7 +87,9 @@ def cmd_run(args: argparse.Namespace) -> int:
 def cmd_comments(args: argparse.Namespace) -> int:
     ingestor = Ingestor(args.project)
     manifest = ingestor.scan()
-    analyzer = CommentAnalyzer()
+    client = _llm(args)
+    analyzer = CommentAnalyzer(
+        interpreter=LLMCommentInterpreter(client, effort=args.effort) if client else None)
     rows = []
     for entry in manifest:
         if entry.role != "municipal_comments":
@@ -67,7 +100,8 @@ def cmd_comments(args: argparse.Namespace) -> int:
             continue
         for comment in analyzer.analyze_document(text, source_ref=Path(entry.file).name):
             rows.append((comment.comment_id, comment.department,
-                         comment.normalized_requirement or comment.required_action,
+                         comment.summary or comment.normalized_requirement
+                         or comment.required_action,
                          f"{comment.confidence.value:.2f}"))
     if args.json:
         print(json.dumps([dict(zip(("id", "department", "requirement", "confidence"), row))
@@ -99,6 +133,20 @@ def cmd_validate(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+def _add_llm_arguments(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--llm", action="store_true",
+                       help="require Claude; fail if no credentials are configured")
+    group.add_argument("--no-llm", action="store_true",
+                       help="use the deterministic parser only")
+    parser.add_argument("--model", default=None,
+                        help=f"model id (default: {llm_client.DEFAULT_MODEL})")
+    parser.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"),
+                        default=None, help=f"reasoning effort (default: {llm_client.DEFAULT_EFFORT})")
+    parser.add_argument("--llm-cache", default=None, metavar="DIR",
+                        help="cache model answers on disk, so a re-run costs nothing")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="archagent",
@@ -113,11 +161,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--answers", help="JSON file of scripted answers keyed by comment id")
     run.add_argument("--threshold", type=float, default=0.85)
     run.add_argument("--output", help="output directory")
+    run.add_argument("--lang", choices=("auto", "he", "en"), default="auto",
+                     help="report language (default: the language of the comments)")
+    _add_llm_arguments(run)
     run.set_defaults(func=cmd_run)
 
     comments = subparsers.add_parser("comments", help="show how the comments are interpreted")
     comments.add_argument("project")
     comments.add_argument("--json", action="store_true")
+    _add_llm_arguments(comments)
     comments.set_defaults(func=cmd_comments)
 
     validate = subparsers.add_parser("validate", help="measure a model against constraint files")

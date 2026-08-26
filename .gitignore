@@ -220,3 +220,6 @@ __marimo__/
 # archagent run artefacts
 examples/project/versions/
 examples/project/output/
+examples/project_he/versions/
+examples/project_he/output/
+.archagent-cache/

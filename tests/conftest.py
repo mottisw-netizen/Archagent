@@ -10,16 +10,26 @@ sys.path.insert(0, str(ROOT / "src"))
 from archagent.drawing.json_model import JSONModelDriver  # noqa: E402
 
 EXAMPLE = ROOT / "examples" / "project"
+EXAMPLE_HE = ROOT / "examples" / "project_he"
+
+
+def _copy(source, destination):
+    shutil.copytree(source, destination)
+    for stale in ("versions", "output"):
+        shutil.rmtree(destination / stale, ignore_errors=True)
+    return destination
 
 
 @pytest.fixture
 def project(tmp_path):
     """A writable copy of the example project."""
-    destination = tmp_path / "project"
-    shutil.copytree(EXAMPLE, destination)
-    for stale in ("versions", "output"):
-        shutil.rmtree(destination / stale, ignore_errors=True)
-    return destination
+    return _copy(EXAMPLE, tmp_path / "project")
+
+
+@pytest.fixture
+def project_he(tmp_path):
+    """A writable copy of the Hebrew example project."""
+    return _copy(EXAMPLE_HE, tmp_path / "project_he")
 
 
 @pytest.fixture

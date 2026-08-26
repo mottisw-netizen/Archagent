@@ -155,6 +155,27 @@ class Requirement(Serialisable):
         subject = f"{subject} ({edge})" if edge else subject
         return f"{subject} {self.metric} {self.op} {units.format_value(self.value, self.unit)}"
 
+    def describe_in(self, messages) -> str:
+        """The same requirement, phrased in the report's language."""
+        selector = self.subject.get("selector") or {}
+        subject = self.subject.get("label") or self.subject.get("element_id")
+        if not subject or subject in selector.values():
+            subject = subject or ""
+        if selector.get("counts_as_floor_area"):
+            subject = messages.t("etype.project")
+        elif subject and (subject == selector.get("type")
+                          or messages.knows(f"etype.{subject}")):
+            subject = messages.element_type(subject)
+        elif not subject:
+            subject = (messages.element_type(selector["type"]) if selector.get("type")
+                       else describe_selector(selector))
+        metric = messages.metric(self.metric)
+        edge = self.subject.get("edge")
+        if edge:
+            metric = f"{metric} {messages.edge(edge)}"
+        return messages.t("requirement_line", subject=subject, metric=metric,
+                          op=self.op, value=messages.value(self.value, self.unit))
+
 
 @dataclass
 class Confidence(Serialisable):
@@ -215,6 +236,10 @@ class MunicipalComment(Serialisable):
     confidence: Confidence = field(default_factory=Confidence)
     source_ref: str = ""
     language: str = ""
+    #: One-line restatement in the comment's own language, for the report.
+    summary: str = ""
+    #: Where the interpretation came from: llm+rules | llm | rules | none
+    interpretation_source: str = "rules"
     parse_notes: list[str] = field(default_factory=list)
     conflicts_with: list[str] = field(default_factory=list)
 

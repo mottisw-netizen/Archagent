@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import units
+from .lang.messages import DEFAULT as DEFAULT_MESSAGES, Messages
 from .models import Decision, MunicipalComment, CorrectionPlan, ElementMapping, new_id
 from .simulate import SimulationResult
 
@@ -29,48 +29,59 @@ class Question:
     simulation: SimulationResult | None = None
     options: list[str] = field(default_factory=list)
     recommended: str = "A"
+    messages: Messages = DEFAULT_MESSAGES
 
     def render(self) -> str:
-        lines = [f"## Consultation - {self.comment.comment_id} ({self.comment.department})", ""]
-        lines += ["### The municipal comment", "", "```text", self.comment.original_text.strip(), "```", ""]
-        lines += ["### What was found", "", "```text", "Affected elements:"]
-        for element_id in self.mapping.selected or ["(none identified)"]:
+        m = self.messages
+        lines = [f"## {m.t('consultation')} - {self.comment.comment_id} "
+                 f"({m.department(self.comment.department)})", ""]
+        lines += [f"### {m.t('the_municipal_comment')}", "", "```text",
+                  self.comment.original_text.strip(), "```", ""]
+        lines += [f"### {m.t('what_was_found')}", "", "```text", m.t("affected_elements")]
+        for element_id in self.mapping.selected or [m.t("none_identified")]:
             lines.append(f"- {element_id}")
-        lines += ["```", "", "### Proposed correction", "", "```text", self.plan.strategy, "```", ""]
-        lines += ["### Consequences", "", "```text"]
+        lines += ["```", "", f"### {m.t('proposed_correction')}", "", "```text",
+                  self.plan.strategy, "```", ""]
+        lines += [f"### {m.t('consequences')}", "", "```text"]
         consequences = self.consequences()
-        lines += consequences or ["- no secondary effect detected"]
+        lines += consequences or [m.t("no_secondary_effect")]
         lines += ["```", ""]
         if self.plan.alternatives:
-            lines += ["### Alternatives", ""]
+            lines += [f"### {m.t('alternatives')}", ""]
             for index, alternative in enumerate(self.plan.alternatives, start=2):
                 letter = chr(ord("A") + index - 1)
                 lines.append(f"{letter}. {alternative['strategy']}")
             lines.append("")
-        lines += ["### Recommendation", "",
-                  f"Option {self.recommended}: {self.plan.strategy}",
-                  f"Confidence: {self.plan.confidence.value:.0%} "
-                  f"(limited by {self.plan.confidence.limiting_component})", ""]
+        lines += [f"### {m.t('recommendation')}", "",
+                  m.t("option_line", letter=self.recommended, strategy=self.plan.strategy),
+                  f"{m.t('confidence')}: " + m.t(
+                      "confidence_limited", value=f"{self.plan.confidence.value:.0%}",
+                      component=m.component(self.plan.confidence.limiting_component)), ""]
+        if self.comment.summary:
+            lines += [f"{m.t('interpretation')}: {self.comment.summary}", ""]
         if self.plan.consultation_reasons:
-            lines += ["Asking because:", ""]
+            lines += [m.t("asking_because"), ""]
             lines += [f"- {reason}" for reason in self.plan.consultation_reasons]
             lines.append("")
-        lines += ["Answer with: approve | reject | alternative:<letter> | modify:<instruction>", ""]
+        lines += [m.t("answer_with"), ""]
         return "\n".join(lines)
 
     def consequences(self) -> list[str]:
+        m = self.messages
         lines = []
         for effect in self.plan.expected_effects:
-            verdict = "still compliant" if effect.still_compliant else "NO LONGER COMPLIANT"
+            verdict = m.t("still_compliant") if effect.still_compliant else m.t("not_compliant")
             lines.append(
-                f"- {effect.element} {effect.property}: "
-                f"{units.format_value(effect.from_value or 0.0)} -> "
-                f"{units.format_value(effect.to_value or 0.0)} ({verdict}, {effect.constraint_id})")
+                f"- {effect.element} {m.effect_property(effect.property)}: "
+                f"{m.value(effect.from_value or 0.0)} -> "
+                f"{m.value(effect.to_value or 0.0)} ({verdict}, {effect.constraint_id})")
         if self.simulation:
             for violation in self.simulation.violations:
-                lines.append(f"- unmet: {violation.constraint_id} {violation.rule}")
+                lines.append(m.t("unmet", constraint=violation.constraint_id,
+                                 rule=violation.rule))
             for regression in self.simulation.regressions:
-                lines.append(f"- regression: {regression['constraint_id']} {regression['rule']}")
+                lines.append(m.t("regression_line", constraint=regression["constraint_id"],
+                                 rule=regression["rule"]))
         return lines
 
     def option_letters(self) -> list[str]:
@@ -116,14 +127,17 @@ class ScriptedResponder:
 
 
 class ConsultationAgent:
-    def __init__(self, responder: Responder | None = None):
+    def __init__(self, responder: Responder | None = None,
+                 messages: Messages | None = None):
         self.responder = responder or defer
+        self.m = messages or DEFAULT_MESSAGES
         self.transcript: list[dict] = []
 
     def consult(self, comment: MunicipalComment, plan: CorrectionPlan, mapping: ElementMapping,
                 simulation: SimulationResult | None = None) -> Decision:
         question = Question(comment=comment, plan=plan, mapping=mapping, simulation=simulation,
-                            options=[plan.strategy] + [a["strategy"] for a in plan.alternatives])
+                            options=[plan.strategy] + [a["strategy"] for a in plan.alternatives],
+                            messages=self.m)
         question.options = question.options or [plan.strategy]
         answer = (self.responder(question) or "question").strip()
         decision = Decision(

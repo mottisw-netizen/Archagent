@@ -15,6 +15,7 @@ from . import units
 from .constraints import ConstraintLedger
 from .drawing.api import DrawingAPIError, DrawingDriver
 from .drawing.geometry import DIRECTIONS
+from .lang.messages import DEFAULT as DEFAULT_MESSAGES, Messages
 from .mapping import identification_confidence
 from .models import (
     Action,
@@ -60,54 +61,57 @@ class PlanProposal:
 
 class Planner:
     def __init__(self, driver: DrawingDriver, ledger: ConstraintLedger,
-                 baseline: dict[str, str] | None = None, threshold: float = 0.85):
+                 baseline: dict[str, str] | None = None, threshold: float = 0.85,
+                 messages: Messages | None = None):
         self.driver = driver
         self.ledger = ledger
         self.baseline = baseline or {}
         self.threshold = threshold
+        self.m = messages or DEFAULT_MESSAGES
         self._counter = 0
 
     # ------------------------------------------------------------------
     def plan_for(self, comment: MunicipalComment, mapping: ElementMapping) -> PlanProposal:
         if comment.required_action == "none":
-            return PlanProposal(None, reasons=["comment demands no action"])
+            return PlanProposal(None, reasons=[self.m.t("r_no_action")])
         if comment.requirement is None:
             if comment.required_action in ("update_schedule", "update_dimension", "update_text"):
                 return self._annotation_plan(comment, mapping)
-            return PlanProposal(None, reasons=["no testable requirement could be extracted"])
+            return PlanProposal(None, reasons=[self.m.t("r_no_requirement")])
 
         requirement = comment.requirement
         if mapping.resolution is Resolution.NOT_FOUND:
             return PlanProposal(None, reasons=[
-                f"no element in the model matches {requirement.describe()}"])
+                self.m.t("r_no_element", requirement=requirement.describe_in(self.m))])
         if mapping.resolution is Resolution.AMBIGUOUS:
-            return PlanProposal(None, reasons=[mapping.notes or "ambiguous element match"])
+            return PlanProposal(None, reasons=[mapping.notes or self.m.t("t_ambiguous")])
 
         if requirement.metric in PROGRAM_METRICS:
-            return PlanProposal(None, reasons=[
-                f"{requirement.metric} is a program-level change; it is a design decision, "
-                "not a minimal correction"],
+            return PlanProposal(
+                None,
+                reasons=[self.m.t("r_program", metric=self.m.metric(requirement.metric))],
                 proposal_text=self._program_proposal(comment, mapping, requirement))
         if requirement.metric not in PLANNABLE_METRICS:
-            return PlanProposal(None, reasons=[f"no planning strategy for metric {requirement.metric!r}"])
+            return PlanProposal(None, reasons=[
+                self.m.t("r_no_strategy", metric=self.m.metric(requirement.metric))])
 
         element_id = mapping.selected[0]
         try:
             current = self.driver.measure(self._subject(requirement, element_id),
                                           requirement.metric, requirement.basis)
         except DrawingAPIError as error:
-            return PlanProposal(None, reasons=[f"current value could not be measured: {error}"])
+            return PlanProposal(None, reasons=[self.m.t("r_unmeasurable", error=error)])
 
         comparison = units.compare(current.value, requirement.op, requirement.value,
                                    requirement.unit, current.unit)
         if comparison.passes:
             plan = self._empty_plan(comment, element_id, requirement, current)
-            return PlanProposal(plan, None, ["already compliant; no change required"])
+            return PlanProposal(plan, None, [self.m.t("r_already_compliant")])
 
         variants = self._variants(comment, mapping, requirement, element_id, current.value)
         if not variants:
             return PlanProposal(None, reasons=[
-                f"no minimal change was found that satisfies {requirement.describe()}"])
+                self.m.t("r_no_minimal_change", requirement=requirement.describe_in(self.m))])
 
         scored = []
         for plan in variants:
@@ -120,12 +124,13 @@ class Planner:
         for _score, plan, result in scored:
             plan.notes.append(f"simulation: {'safe' if result.safe else 'unsafe'}")
         if not safe_variants:
-            reasons = ["every candidate change breaks a constraint or creates a conflict"]
-            reasons += [f"spatial conflict: {item}" for item in best_result.spatial_conflicts]
+            reasons = [self.m.t("r_all_unsafe")]
+            reasons += [self.m.t("r_spatial", detail=item)
+                        for item in best_result.spatial_conflicts]
             for violation in best_result.critical_violations or best_result.violations:
                 reasons.append(
                     f"{violation.constraint_id} ({violation.priority.value}): {violation.rule} -> "
-                    f"measured {units.format_value(violation.measured or 0.0, violation.unit, violation.op)}")
+                    f"measured {self.m.value(violation.measured or 0.0, violation.unit, violation.op)}")
             return PlanProposal(None, best_result, reasons,
                                 self._blocked_proposal(comment, best_plan, best_result))
 
@@ -161,8 +166,8 @@ class Planner:
         return CorrectionPlan(
             plan_id=self._next_id(comment, "noop"),
             comment_ids=[comment.comment_id],
-            strategy=f"No change required: {requirement.describe()} already holds "
-                     f"({current.formatted(requirement.op)})",
+            strategy=self.m.t("s_no_change", requirement=requirement.describe_in(self.m),
+                              measured=current.formatted(requirement.op)),
             status="already_compliant",
             deterministic=True,
             confidence=comment.confidence.with_(solution=0.98, verification=0.98),
@@ -192,12 +197,15 @@ class Planner:
             plan = CorrectionPlan(
                 plan_id=self._next_id(comment, f"resize-{anchor}"),
                 comment_ids=[comment.comment_id],
-                strategy=f"Set {element.get('label', element_id)} {parameter} to "
-                         f"{units.format_value(target)} (holding the {anchor.replace('_', ' ')} edge)",
+                strategy=self.m.t("s_set_dimension",
+                                  element=element.get("label", element_id),
+                                  parameter=self.m.metric(parameter),
+                                  value=self.m.value(target),
+                                  anchor=self.m.anchor(anchor)),
                 preconditions=[Precondition(element_id, parameter, round(current, 3))],
                 plan=[action] + self._dependent_actions([element_id]),
                 deterministic=False,
-                rollback="restore the parent version",
+                rollback=self.m.t("s_rollback"),
             )
             variants.append(plan)
         return variants
@@ -215,8 +223,9 @@ class Planner:
         move = CorrectionPlan(
             plan_id=self._next_id(comment, "move"),
             comment_ids=[comment.comment_id],
-            strategy=f"Move {label} {units.format_value(delta)} {OPPOSITE[edge]} to reach a "
-                     f"{units.format_value(target)} {edge} setback",
+            strategy=self.m.t("s_move", element=label, distance=self.m.value(delta),
+                              direction=self.m.direction(OPPOSITE[edge]),
+                              value=self.m.value(target), edge=self.m.edge(edge)),
             plan=[Action(action="move", element=element_id, distance=delta,
                          direction=OPPOSITE[edge])] + self._dependent_actions([element_id]),
             rollback="restore the parent version",
@@ -229,8 +238,11 @@ class Planner:
         shrink = CorrectionPlan(
             plan_id=self._next_id(comment, "shrink"),
             comment_ids=[comment.comment_id],
-            strategy=f"Pull the {edge} face of {label} back by {units.format_value(delta)} "
-                     f"({parameter} {units.format_value(extent)} -> {units.format_value(extent - delta)})",
+            strategy=self.m.t("s_pull_back", edge=self.m.edge(edge), element=label,
+                              distance=self.m.value(delta),
+                              parameter=self.m.metric(parameter),
+                              before=self.m.value(extent),
+                              after=self.m.value(extent - delta)),
             preconditions=[Precondition(element_id, parameter, round(extent, 3))],
             plan=[Action(action="resize", element=element_id, parameter=parameter,
                          from_value=round(extent, 3), to_value=round(extent - delta, 3),
@@ -259,17 +271,18 @@ class Planner:
         elif action_kind == "update_text":
             quoted = _QUOTED.search(comment.original_text)
             if not quoted or not mapping.selected:
-                return PlanProposal(None, reasons=[
-                    "the comment asks for a text change but does not state the replacement text"])
+                return PlanProposal(None, reasons=[self.m.t("r_annotation_missing_text")])
             actions.append(Action(action="update_text", element=mapping.selected[0],
                                   text=quoted.group("text")))
         if not actions:
             return PlanProposal(None, reasons=[
-                f"nothing in the model matches the requested {action_kind.replace('update_', '')} change"])
+                self.m.t("r_annotation_no_target",
+                         kind=action_kind.replace("update_", ""))])
         plan = CorrectionPlan(
             plan_id=self._next_id(comment, "annotate"),
             comment_ids=[comment.comment_id],
-            strategy=f"{action_kind.replace('_', ' ')} ({len(actions)} item(s))",
+            strategy=self.m.t("s_annotation", action=action_kind.replace("_", " "),
+                              count=len(actions)),
             plan=actions,
             deterministic=True,
             confidence=comment.confidence.with_(solution=0.95, verification=0.9),
@@ -277,9 +290,9 @@ class Planner:
         )
         result = simulate(self.driver, plan, self.ledger, self.baseline)
         if not result.ok:
-            return PlanProposal(None, result, [f"simulation failed: {result.error}"])
+            return PlanProposal(None, result, [self.m.t("r_simulation_failed", error=result.error)])
         if not result.safe:
-            return PlanProposal(None, result, ["annotation change breaks a constraint in simulation"])
+            return PlanProposal(None, result, [self.m.t("r_annotation_unsafe")])
         plan.expected_effects = self._effects(result)
         return PlanProposal(plan, result, [])
 
@@ -365,7 +378,7 @@ class Planner:
             subject = constraint.test.subject
             edge = subject.get("edge")
             effects.append(ExpectedEffect(
-                element=subject.get("element_id") or subject.get("label") or "project",
+                element=self._element_name(subject),
                 property=f"{constraint.test.metric} ({edge})" if edge else constraint.test.metric,
                 from_value=round(before, 3),
                 to_value=round(after.measured, 3),
@@ -373,6 +386,17 @@ class Planner:
                 still_compliant=after.status != "fail",
             ))
         return effects
+
+    def _element_name(self, subject: dict) -> str:
+        """The drawing's own label for an element, for anything a human reads."""
+        element_id = subject.get("element_id")
+        if element_id:
+            try:
+                element = self.driver.get_element(element_id)
+            except DrawingAPIError:
+                return element_id
+            return element.get("label") or element_id
+        return subject.get("label") or self.m.t("etype.project")
 
     def _finalise(self, plan: CorrectionPlan, comment: MunicipalComment, mapping: ElementMapping,
                   result: SimulationResult, requirement: Requirement) -> None:
@@ -407,23 +431,22 @@ class Planner:
         """The triggers of SKILL.md 4.1, evaluated against a simulated plan."""
         reasons: list[str] = []
         if mapping.resolution is Resolution.AMBIGUOUS:
-            reasons.append("the comment does not identify a single element")
+            reasons.append(self.m.t("t_ambiguous"))
         if plan.confidence.value < self.threshold:
-            reasons.append(
-                f"confidence {plan.confidence.value:.2f} is below the {self.threshold:.2f} threshold "
-                f"(limited by {plan.confidence.limiting_component})")
+            reasons.append(self.m.t("t_confidence", value=f"{plan.confidence.value:.2f}",
+                                    threshold=f"{self.threshold:.2f}",
+                                    component=self.m.component(plan.confidence.limiting_component)))
         if result.spatial_conflicts:
-            reasons.append("the correction creates a spatial conflict: "
-                           + "; ".join(result.spatial_conflicts))
+            reasons.append(self.m.t("t_spatial", detail="; ".join(result.spatial_conflicts)))
         if result.violations:
-            reasons.append("the correction leaves another constraint unmet: "
-                           + ", ".join(v.constraint_id for v in result.violations))
+            reasons.append(self.m.t(
+                "t_unmet", constraints=", ".join(v.constraint_id for v in result.violations)))
         for effect in plan.expected_effects:
             constraint = self.ledger.get(effect.constraint_id)
             metric = constraint.test.metric if constraint and constraint.test else ""
             if metric in PROGRAM_METRICS:
-                reasons.append(f"the correction changes {metric} "
-                               f"({effect.from_value} -> {effect.to_value})")
+                reasons.append(self.m.t("t_changes_metric", metric=self.m.metric(metric),
+                                        before=effect.from_value, after=effect.to_value))
         for action in plan.plan:
             try:
                 element = self.driver.get_element(action.element)
@@ -431,14 +454,15 @@ class Planner:
                 continue
             properties = element.get("properties", {})
             if element.get("type") in STRUCTURAL_TYPES or properties.get("structural"):
-                reasons.append(f"{action.element} is a structural element")
+                reasons.append(self.m.t("t_structural", element=action.element))
             if element.get("type") == "building":
-                reasons.append("the correction changes the building footprint")
+                reasons.append(self.m.t("t_footprint"))
             consultant = properties.get("consultant")
             if consultant and consultant != "architecture":
-                reasons.append(f"{action.element} belongs to another consultant ({consultant})")
+                reasons.append(self.m.t("t_consultant", element=action.element,
+                                        consultant=consultant))
         if len(plan.alternatives) >= 1:
-            reasons.append("more than one valid solution exists")
+            reasons.append(self.m.t("t_multiple"))
         return list(dict.fromkeys(reasons))
 
     def _program_proposal(self, comment: MunicipalComment, mapping: ElementMapping,
@@ -447,15 +471,11 @@ class Planner:
             current = self.driver.measure(requirement.subject, requirement.metric, requirement.basis)
         except DrawingAPIError:
             return ""
-        return (f"{requirement.describe()}; the model currently measures "
-                f"{current.formatted(requirement.op)}. Closing the gap changes the project program, "
-                "which is a design decision for the architect.")
+        return self.m.t("s_program_proposal", requirement=requirement.describe_in(self.m),
+                        measured=current.formatted(requirement.op))
 
-    @staticmethod
-    def _blocked_proposal(comment: MunicipalComment, plan: CorrectionPlan,
+    def _blocked_proposal(self, comment: MunicipalComment, plan: CorrectionPlan,
                           result: SimulationResult) -> str:
         blockers = ", ".join(f"{v.constraint_id} ({v.rule})"
                              for v in (result.critical_violations or result.violations))
-        return (f"The minimal change ({plan.strategy}) would break {blockers}. "
-                "Either the blocking constraint is relaxed by the authority, or the design "
-                "changes more widely than this comment allows.")
+        return self.m.t("s_blocked", strategy=plan.strategy, blockers=blockers)

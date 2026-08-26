@@ -9,6 +9,7 @@ from __future__ import annotations
 from . import units
 from .constraints import ConstraintLedger
 from .drawing.api import DrawingAPIError, DrawingDriver
+from .lang.messages import DEFAULT as DEFAULT_MESSAGES, Messages
 from .models import (
     CommentStatus,
     CommentValidation,
@@ -47,10 +48,12 @@ def find_overlaps(driver: DrawingDriver) -> list[str]:
 
 class ValidationAgent:
     def __init__(self, driver: DrawingDriver, ledger: ConstraintLedger,
-                 baseline: dict[str, str] | None = None):
+                 baseline: dict[str, str] | None = None,
+                 messages: Messages | None = None):
         self.driver = driver
         self.ledger = ledger
         self.baseline = baseline or {}
+        self.m = messages or DEFAULT_MESSAGES
 
     # ------------------------------------------------------------------
     def validate(self, version: str, comments: list[MunicipalComment],
@@ -59,7 +62,7 @@ class ValidationAgent:
         result = ValidationResult(version=version)
         result.comments = [self.validate_comment(comment, comment.comment_id in applied)
                            for comment in comments]
-        result.constraints = self.ledger.evaluate(self.driver)
+        result.constraints = self.ledger.evaluate(self.driver, messages=self.m)
         result.drawing_checks = self.drawing_checks()
         result.regressions = [
             {
@@ -81,22 +84,22 @@ class ValidationAgent:
     def validate_comment(self, comment: MunicipalComment, was_applied: bool) -> CommentValidation:
         if comment.required_action == "none":
             return CommentValidation(comment.comment_id, CommentStatus.NOT_APPLICABLE,
-                                     note="statement only; no action demanded")
+                                     note=self.m.t("v_statement_only"))
         if comment.requirement is None:
             if was_applied:
                 return CommentValidation(
                     comment.comment_id, CommentStatus.ADDRESSED_NEEDS_CONFIRMATION,
-                    note="the change was made, but the demand is not machine-measurable")
+                    note=self.m.t("v_not_measurable"))
             return CommentValidation(
                 comment.comment_id, CommentStatus.REQUIRES_HUMAN_REVIEW,
-                note="no testable requirement could be extracted from the comment")
+                note=self.m.t("v_no_requirement"))
         requirement = comment.requirement
         try:
             measurement = self.driver.measure(requirement.subject, requirement.metric,
                                               requirement.basis)
         except DrawingAPIError as error:
             return CommentValidation(comment.comment_id, CommentStatus.REQUIRES_HUMAN_REVIEW,
-                                     note=f"could not be measured: {error}")
+                                     note=self.m.t("v_cannot_measure", error=error))
         comparison = units.compare(measurement.value, requirement.op, requirement.value,
                                    requirement.unit, measurement.unit)
         evidence = {
@@ -107,13 +110,13 @@ class ValidationAgent:
         }
         if comparison.passes:
             status = CommentStatus.RESOLVED
-            note = "at the limit" if comparison.at_limit else ""
+            note = self.m.t("at_limit") if comparison.at_limit else ""
         elif was_applied:
             status = CommentStatus.PARTIALLY_RESOLVED
-            note = "a change was applied but the requirement is still not met"
+            note = self.m.t("v_still_not_met")
         else:
             status = CommentStatus.NOT_RESOLVED
-            note = "no valid change was applied"
+            note = self.m.t("v_no_change")
         return CommentValidation(comment.comment_id, status, evidence, note)
 
     # ------------------------------------------------------------------
@@ -122,7 +125,7 @@ class ValidationAgent:
         elements = getattr(self.driver, "elements", None)
         if elements is None:
             return [{"check": "drawing_checks", "status": "not_evaluated",
-                     "details": ["driver does not expose an element index"]}]
+                     "details": ["driver does not expose an element index"]}]  # technical
         index = elements()
         ids = [element["id"] for element in index]
         duplicates = sorted({element_id for element_id in ids if ids.count(element_id) > 1})

@@ -14,6 +14,7 @@ from typing import Iterable
 from . import units
 from .comments import CommentAnalyzer
 from .drawing.api import DrawingAPIError, DrawingDriver, MeasurementError
+from .lang.messages import DEFAULT as DEFAULT_MESSAGES, Messages
 from .models import (
     Constraint,
     ConstraintValidation,
@@ -39,7 +40,13 @@ CRITICAL_KEYWORDS = (
     "accessib", "clearance", "height limit", "coverage",
 )
 
-_PRIORITY_TAG = re.compile(r"\[(?P<priority>critical|high|medium|low)\]", re.I)
+#: A priority tag may be written in either language: [critical] / [קריטי].
+_PRIORITY_WORDS = {
+    "critical": "critical", "high": "high", "medium": "medium", "low": "low",
+    "קריטי": "critical", "גבוה": "high", "בינוני": "medium", "נמוך": "low",
+}
+_PRIORITY_TAG = re.compile(
+    r"\[(?P<priority>" + "|".join(_PRIORITY_WORDS) + r")\]", re.I)
 
 
 class ConstraintLedger:
@@ -81,21 +88,24 @@ class ConstraintLedger:
     # evaluation
     # ------------------------------------------------------------------
     def evaluate(self, driver: DrawingDriver,
-                 constraints: Iterable[Constraint] | None = None) -> list[ConstraintValidation]:
+                 constraints: Iterable[Constraint] | None = None,
+                 messages: Messages | None = None) -> list[ConstraintValidation]:
         results = []
         for constraint in (constraints if constraints is not None else self._constraints):
-            results.append(evaluate_constraint(driver, constraint))
+            results.append(evaluate_constraint(driver, constraint, messages))
         return results
 
 
-def evaluate_constraint(driver: DrawingDriver, constraint: Constraint) -> ConstraintValidation:
+def evaluate_constraint(driver: DrawingDriver, constraint: Constraint,
+                        messages: Messages | None = None) -> ConstraintValidation:
     """Measure a constraint on the live model; never infer from an edit log."""
+    m = messages or DEFAULT_MESSAGES
     test = constraint.test
     if test is None:
         return ConstraintValidation(
             constraint_id=constraint.constraint_id, status="not_evaluated",
             priority=constraint.priority, rule=constraint.rule,
-            note="constraint has no machine-testable form",
+            note=m.t("v_no_test"),
         )
     try:
         measurement = driver.measure(test.subject, test.metric, test.basis)
@@ -104,7 +114,7 @@ def evaluate_constraint(driver: DrawingDriver, constraint: Constraint) -> Constr
             constraint_id=constraint.constraint_id, status="not_evaluated",
             priority=constraint.priority, rule=constraint.rule,
             required=test.value, unit=test.unit, op=test.op,
-            note=f"could not be measured: {error}",
+            note=m.t("v_cannot_measure", error=error),
         )
     comparison = units.compare(measurement.value, test.op, test.value, test.unit, measurement.unit)
     return ConstraintValidation(
@@ -137,8 +147,10 @@ def priority_for(rule: str, source: str, explicit: str | None = None) -> Priorit
 
 
 def constraints_from_comments(comments: Iterable[MunicipalComment],
-                              ledger: ConstraintLedger) -> list[Constraint]:
+                              ledger: ConstraintLedger,
+                              messages: Messages | None = None) -> list[Constraint]:
     """Every comment with a testable requirement becomes a constraint."""
+    m = messages or DEFAULT_MESSAGES
     created = []
     for comment in comments:
         if comment.requirement is None:
@@ -147,7 +159,7 @@ def constraints_from_comments(comments: Iterable[MunicipalComment],
             constraint_id=f"MC-{comment.comment_id}",
             source="Municipal Comment",
             source_ref=comment.source_ref,
-            rule=comment.normalized_requirement,
+            rule=comment.requirement.describe_in(m),
             priority=priority_for(comment.normalized_requirement, "Municipal Comment"),
             test=comment.requirement,
             origin_comment_id=comment.comment_id,
@@ -159,7 +171,8 @@ def constraints_from_comments(comments: Iterable[MunicipalComment],
 
 def constraints_from_document(text: str, source: str, source_ref: str,
                               ledger: ConstraintLedger,
-                              analyzer: CommentAnalyzer | None = None) -> list[Constraint]:
+                              analyzer: CommentAnalyzer | None = None,
+                              messages: Messages | None = None) -> list[Constraint]:
     """Parse a zoning plan / requirements document into constraints.
 
     Lines that cannot be turned into a testable rule are still recorded, with
@@ -167,13 +180,14 @@ def constraints_from_document(text: str, source: str, source_ref: str,
     rather than disappearing.
     """
     analyzer = analyzer or CommentAnalyzer()
+    m = messages or DEFAULT_MESSAGES
     created: list[Constraint] = []
     for raw_line in text.splitlines():
         line = raw_line.strip().lstrip("-*• ")
         if not line or line.startswith("#"):
             continue
         tag = _PRIORITY_TAG.search(line)
-        explicit = tag.group("priority").casefold() if tag else None
+        explicit = _PRIORITY_WORDS[tag.group("priority").casefold()] if tag else None
         clean = _PRIORITY_TAG.sub("", line).strip()
         if len(clean) < 8:
             continue
@@ -184,7 +198,7 @@ def constraints_from_document(text: str, source: str, source_ref: str,
             constraint_id=ledger.next_id("P"),
             source=source,
             source_ref=source_ref,
-            rule=requirement.describe() if requirement else clean,
+            rule=requirement.describe_in(m) if requirement else clean,
             priority=priority_for(clean, source, explicit),
             test=requirement,
             confidence=confidence,
@@ -195,12 +209,14 @@ def constraints_from_document(text: str, source: str, source_ref: str,
     return created
 
 
-def derive_implicit_constraints(driver: DrawingDriver, ledger: ConstraintLedger) -> list[Constraint]:
+def derive_implicit_constraints(driver: DrawingDriver, ledger: ConstraintLedger,
+                                messages: Messages | None = None) -> list[Constraint]:
     """Record what the approved design already achieves (SKILL.md 8.2).
 
     These are MEDIUM priority: they express "do not degrade this", and they
     lose to a municipal comment that requires the change.
     """
+    m = messages or DEFAULT_MESSAGES
     created: list[Constraint] = []
 
     def add(rule: str, test: Requirement) -> None:
@@ -217,7 +233,7 @@ def derive_implicit_constraints(driver: DrawingDriver, ledger: ConstraintLedger)
     try:
         parking = driver.measure({"selector": {"type": "parking"}}, "count")
         if parking.value:
-            add(f"parking count must not fall below the approved {int(parking.value)}",
+            add(m.t("implicit_count", value=int(parking.value)),
                 Requirement(subject={"selector": {"type": "parking"}}, metric="count",
                             op=">=", value=parking.value, unit="count"))
     except DrawingAPIError:
@@ -232,8 +248,8 @@ def derive_implicit_constraints(driver: DrawingDriver, ledger: ConstraintLedger)
                 measurement = driver.measure({"element_id": element["id"]}, parameter)
             except DrawingAPIError:
                 continue
-            add(f"{element.get('label', element['id'])} {parameter} must not fall below "
-                f"the approved {units.format_value(measurement.value)}",
+            add(m.t("implicit_dimension", element=element.get("label", element["id"]),
+                    parameter=m.metric(parameter), value=m.value(measurement.value)),
                 Requirement(subject={"element_id": element["id"], "label": element.get("label", "")},
                             metric=parameter, op=">=", value=round(measurement.value, 3)))
     return created

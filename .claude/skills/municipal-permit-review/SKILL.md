@@ -136,6 +136,33 @@ Rules:
 - The Execution Agent executes only an approved, pre-validated plan (§9). It never improvises a change of its own.
 - The Validation Agent is independent of the Execution Agent: it re-measures the produced model instead of trusting the edit log.
 
+### 2.2 The language model and its boundary
+
+A language model does the reading. It is the primary interpreter of every
+municipal comment - what the department is demanding, which element the wording
+points at, how to explain a trade-off to an architect - because that is a
+language problem and pattern rules are brittle at it.
+
+The boundary is absolute and it is what makes the system safe to trust:
+
+> **The model interprets. The drawing measures.**
+
+- The model may state what a comment *demands* - the value written in the
+  comment, in the unit the comment uses.
+- The model may **never** state what the drawing *is*. Every current dimension,
+  area, count, clearance and compliance verdict comes from a measurement tool
+  (§12.1), and every number in a report is traceable to one.
+- Everything the model returns is validated against the vocabulary the drawing
+  layer can actually measure before it is acted on. A requirement naming a
+  metric no driver supports is rejected, not half-executed.
+- The model may choose between candidate elements it was given (§7.1), but only
+  from that list, and its pick is recorded as a judgement with its reasoning -
+  never as a match.
+- A deterministic parser runs alongside the model as a cross-check (§20.4).
+- If the model is unavailable, the run continues on the deterministic parser at
+  reduced confidence, which sends more comments to consultation. It never
+  silently proceeds as though nothing changed.
+
 ---
 
 ## 3. Required Input
@@ -1372,6 +1399,21 @@ Lower a component when: the source text is scanned, low quality or partially unr
 
 Never raise a confidence value to clear a threshold. If a number is uncomfortable, that is the signal working.
 
+### 20.4 Two readings, one requirement
+
+The language model and the deterministic parser both read every comment, and
+the comparison is itself evidence:
+
+| Outcome | Effect |
+| --- | --- |
+| Both produce the same requirement | `interpretation` takes the higher of the two; the agreement is recorded |
+| They produce different requirements | The model's reading is used, `interpretation` drops to 0.55 or below, and **both readings are recorded** - the comment goes to consultation rather than being silently resolved one way |
+| Only the model produces one | Used at the model's own confidence; the report says the rules found nothing testable |
+| Only the rules produce one | Used, capped at 0.7, and marked as rule-derived |
+| Neither | The comment is unresolved and routed to a human, with what the model could not determine |
+
+A disagreement is never resolved by preferring one component. It is surfaced.
+
 ---
 
 ## 21. Failure Handling and Escalation
@@ -1411,7 +1453,15 @@ Never, under any mode or instruction:
 - **Rounding.** Always round in the conservative direction - the direction that does not make a constraint appear satisfied. A required 2.50 m satisfied by 2.4996 m is not satisfied.
 - **Measurement basis.** Record how each dimension is measured (clear / edge / centreline / to plot line) and use the basis the authority uses. State it in the report.
 - **Orientation.** Take north from the drawing's north arrow or the model's project north; if both exist and disagree, stop and ask.
-- **Language.** Municipal comments may be in any language, and often are not in English. Keep `original_text` verbatim in its own language, work internally from `normalized_requirement`, and write text placed in the drawing in the drawing's language - never translate drawing content as a side effect of a correction.
+- **Language.** Municipal comments may be in any language, and often are not in English. Keep `original_text` verbatim in its own language, work internally from `normalized_requirement`, and write text placed in the drawing in the drawing's language - never translate drawing content as a side effect of a correction. The comment set decides the language of everything a human reads: the report, the open items, the consultation questions and the preview legends are written in the language the comments were written in.
+- **Hebrew.** Israeli permit comments are the primary case and are handled natively, not through translation:
+  - bounds - `לפחות` / `לא יפחת מ-` / `מינימום` are `>=`; `לא יעלה על` / `לכל היותר` / `עד` are `<=`;
+  - the value is introduced by `ל-` (`ל-2.50 מ'`), and a verb alone can carry the direction: `להגדיל` / `להרחיב` mean `>=`, `להקטין` / `לצמצם` / `להצר` mean `<=`;
+  - units are `מ'` / `מטר` (m), `ס"מ` (cm), `מ"מ` (mm), `מ"ר` (m²), written with either gershayim (`״`) or ASCII quotes - both normalise;
+  - vocabulary: `נסיגה` / `קו בניין` = setback, `רוחב נטו` / `רוחב מעבר חופשי` = clear width, `שטח בנייה` = floor area, `מקום חניה` / `חניית` = parking space, `שביל גישה` = driveway;
+  - prefixed letters (`ב ה ו כ ל מ ש`) are absorbed, so `הרוחב`, `ברוחב` and `לרוחב` all read as `רוחב`;
+  - `1,850` is one thousand eight hundred and fifty; `2,50` is two and a half. Guessing wrong here puts a decimal point in a floor area, so the two forms are separated explicitly;
+  - reports render right-to-left, and numbers keep their Hebrew unit suffix (`2.50 מ'`, `1,850 מ"ר`).
 - **Drafting standards.** Preserve layer names, block names, text styles, dimension styles and sheet numbering. A correction never renames or reorganizes the drawing's structure.
 - **Element identity.** Preserve element ids and tags across versions so that changes can be tracked; a resized element is the same element, not a delete plus a create.
 

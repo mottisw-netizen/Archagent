@@ -13,6 +13,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import lang
 from . import preview as preview_module
 from .audit import AuditLog
 from .comments import CommentAnalyzer
@@ -29,6 +30,11 @@ from .drawing.json_model import JSONModelDriver
 from .execute import ExecutionAgent
 from .graph import build_graph, impact_set
 from .ingest import Ingestor
+from .lang.messages import Messages
+from .llm.client import LLMClient
+from .llm.disambiguate import ElementDisambiguator
+from .llm.interpret import LLMCommentInterpreter, inventory_from_driver
+from .llm.summarise import RunSummariser, facts_for
 from .mapping import ElementMapper
 from .models import (
     ChangeRecord,
@@ -66,6 +72,8 @@ class RunResult:
     definition_of_done: list[tuple[str, bool]] = field(default_factory=list)
     report: str = ""
     consulted: set[str] = field(default_factory=set)
+    language: str = "en"
+    llm: dict = field(default_factory=dict)
 
     @property
     def complete(self) -> bool:
@@ -75,10 +83,17 @@ class RunResult:
 class Orchestrator:
     def __init__(self, project_dir, mode: str = Mode.CONSULTATION.value,
                  responder: Responder | None = None, threshold: float = 0.85,
-                 output_dir=None, analyzer: CommentAnalyzer | None = None):
+                 output_dir=None, analyzer: CommentAnalyzer | None = None,
+                 llm: LLMClient | None = None, language: str = "auto",
+                 effort: str | None = None):
         self.project_dir = Path(project_dir)
         self.mode = Mode(mode)
         self.threshold = threshold
+        self.llm = llm
+        self.effort = effort
+        self.language = language
+        #: Report language; replaced once the comments have been read.
+        self.m = Messages("en" if language == "auto" else language)
         self.analyzer = analyzer or CommentAnalyzer()
         self.responder = responder or (auto_approve if self.mode is Mode.AUTONOMOUS else defer)
         self.run_id = new_id("RUN")
@@ -86,7 +101,7 @@ class Orchestrator:
         self.versions = VersionStore(self.project_dir / "versions")
         self.audit = AuditLog(self.output_dir / "audit.jsonl")
         self.ledger = ConstraintLedger()
-        self.consultation = ConsultationAgent(self.responder)
+        self.consultation = ConsultationAgent(self.responder, self.m)
         self.driver: DrawingDriver | None = None
         self._simulated: set[str] = set()
 
@@ -115,12 +130,12 @@ class Orchestrator:
 
         graph = build_graph(result.plans, self.ledger.all, self.driver)
         for cycle in graph.cycles():
-            context.add_open_item(" -> ".join(cycle), "circular dependency between changes",
-                                  "a human decision on which change takes precedence")
+            context.add_open_item(" -> ".join(cycle), self.m.t("r_cycle"),
+                                  self.m.t("n_precedence"))
         result.graph = graph.to_dict()
         result.impact = impact_set(graph, result.plans)
 
-        validator = ValidationAgent(self.driver, self.ledger, baseline)
+        validator = ValidationAgent(self.driver, self.ledger, baseline, self.m)
         applied = {change.comment_id for change in changes if change.comment_id}
         result.validation = validator.validate(self.versions.next_version(),
                                                context.municipal_comments, applied)
@@ -131,12 +146,18 @@ class Orchestrator:
         result.version = self._store_new_version(context, result, parent)
         result.files = self._write_artefacts(context, result, parent)
         result.definition_of_done = self._definition_of_done(context, result)
+        narrative = self._narrative(context, result)
         result.report = build_report(
             context, result.validation, result.changes, result.plans, result.decisions,
-            result.version, parent, result.files, result.definition_of_done, result.consulted)
+            result.version, parent, result.files, result.definition_of_done,
+            result.consulted, self.m, narrative)
         report_path = self.output_dir / "correction_report.md"
         report_path.write_text(result.report, encoding="utf-8")
         result.files["correction_report"] = str(report_path)
+        result.language = self.m.code
+        result.llm = self._llm_summary()
+        if result.llm:
+            self.audit.write("orchestrator", "llm_usage", result=result.llm)
         self.audit.write("orchestrator", "run_complete", result=result.validation.result)
         return result
 
@@ -154,16 +175,18 @@ class Orchestrator:
             confidence_threshold=self.threshold,
         )
         self.audit.write("orchestrator", "ingest", result=f"{len(manifest)} files")
-        for entry in manifest:
-            if entry.read_status != "ok":
-                context.add_open_item(entry.file, f"file could not be read ({entry.notes})",
-                                      "a readable copy, or a text/JSON export")
+        self._set_language(context)
         models = [entry for entry in manifest
                   if entry.role == "source_model" and entry.read_status == "ok"
                   and entry.file.endswith(".json")]
         # A model inside /source wins over a stray JSON file elsewhere.
         models.sort(key=lambda entry: (f"{Path(entry.file).parent.name}" != "source",
                                        entry.file))
+        for entry in manifest:
+            if entry.read_status != "ok":
+                context.add_open_item(entry.file,
+                                      self.m.t("r_file_unreadable", notes=entry.notes),
+                                      self.m.t("n_readable_copy"))
         if models:
             self.driver = JSONModelDriver.load(models[0].file)
             context.source_format = "JSON"
@@ -173,11 +196,61 @@ class Orchestrator:
             context.execution_mode = "markup_only"
             context.source_format = "PDF_ONLY"
             self._source_entry = None
-            context.add_open_item(
-                "source model",
-                "no editable source model was supplied (or no driver can read it)",
-                "a DWG/RVT/IFC adapter, or a JSON model export")
+            context.add_open_item("source model", self.m.t("r_no_model"),
+                                  self.m.t("n_driver"))
+        self._attach_interpreter()
         return context
+
+    def _narrative(self, context: ProjectContext, result: RunResult):
+        """An opening paragraph, drawn only from measured results."""
+        if self.llm is None or result.validation is None:
+            return None
+        facts = facts_for(context, result.validation, result.changes, self.m)
+        summary, attention = RunSummariser(self.llm, self.effort).summarise(
+            {"he": "Hebrew", "en": "English"}.get(self.m.code, "English"), facts)
+        if summary:
+            self.audit.write("orchestrator", "narrative", result="written")
+        return (summary, attention) if summary else None
+
+    def _llm_summary(self) -> dict:
+        if self.llm is None:
+            return {}
+        summary = {
+            "model": getattr(self.llm, "model", "unknown"),
+            "calls": getattr(self.llm, "calls", 0),
+            "usage": dict(getattr(self.llm, "usage", {}) or {}),
+            "failures": list(self.analyzer.failures),
+        }
+        if hasattr(self.llm, "hits"):
+            summary["cache_hits"] = self.llm.hits
+            summary["cache_misses"] = self.llm.misses
+        return summary
+
+    def _set_language(self, context: ProjectContext) -> None:
+        """The report speaks the language the comments were written in."""
+        if self.language != "auto":
+            code = self.language
+        else:
+            sample = " ".join(
+                self.ingestor.text_of(entry)[:4000] for entry in context.input_manifest
+                if entry.role == "municipal_comments")
+            code = lang.detect_script(sample) if sample.strip() else "en"
+            code = code if code in ("he", "en") else "en"
+        self.m = Messages(code)
+        self.consultation.m = self.m
+        context.units = context.units or "m"
+        self.audit.write("orchestrator", "language", result=code)
+
+    def _attach_interpreter(self) -> None:
+        """Claude reads the comments; the rule parser cross-checks it."""
+        if self.llm is None or self.analyzer.interpreter is not None:
+            return
+        inventory = inventory_from_driver(self.driver) if self.driver is not None else []
+        self.analyzer.interpreter = LLMCommentInterpreter(
+            self.llm, inventory=inventory, effort=self.effort)
+        self.audit.write("orchestrator", "llm_enabled",
+                         result=getattr(self.llm, "model", "unknown"),
+                         params={"inventory": len(inventory)})
 
     # ------------------------------------------------------------------
     # steps 2-3
@@ -210,25 +283,26 @@ class Orchestrator:
             source = ("Zoning Plan" if "zoning" in Path(entry.file).name.casefold()
                       else "Project Requirement")
             constraints_from_document(text, source, Path(entry.file).name, self.ledger,
-                                      self.analyzer)
-        constraints_from_comments(context.municipal_comments, self.ledger)
+                                      self.analyzer, self.m)
+        constraints_from_comments(context.municipal_comments, self.ledger, self.m)
         if self.driver is not None:
-            derive_implicit_constraints(self.driver, self.ledger)
+            derive_implicit_constraints(self.driver, self.ledger, self.m)
         context.planning_constraints = self.ledger.all
         for conflict in find_conflicts(self.ledger):
             self.audit.write("constraint_engine", "conflict", result=conflict)
             if conflict["requires_human"]:
                 context.add_open_item(
                     " / ".join(conflict["constraints"]),
-                    "two constraints of equal priority and source conflict: "
-                    + " vs ".join(conflict["rules"]),
-                    "a decision from the project architect on which one governs")
+                    self.m.t("r_equal_conflict", rules=" / ".join(conflict["rules"])),
+                    self.m.t("n_which_governs"))
 
     # ------------------------------------------------------------------
     # steps 4-7
     # ------------------------------------------------------------------
     def _map_comments(self, context: ProjectContext) -> None:
-        mapper = ElementMapper(self.driver)
+        disambiguator = (ElementDisambiguator(self.llm, self.effort)
+                         if self.llm is not None else None)
+        mapper = ElementMapper(self.driver, self.m, disambiguator)
         for comment in context.municipal_comments:
             mapping = mapper.map_comment(comment)
             context.mappings.append(mapping)
@@ -238,7 +312,7 @@ class Orchestrator:
                              result=mapping.resolution.value)
 
     def _plan(self, context: ProjectContext, baseline: dict[str, str]) -> dict[str, PlanProposal]:
-        planner = Planner(self.driver, self.ledger, baseline, self.threshold)
+        planner = Planner(self.driver, self.ledger, baseline, self.threshold, self.m)
         proposals: dict[str, PlanProposal] = {}
         for comment in context.municipal_comments:
             mapping = context.mapping(comment.comment_id)
@@ -255,7 +329,7 @@ class Orchestrator:
                                  params={"comment_id": comment.comment_id})
             else:
                 reason = "; ".join(proposal.reasons) or "no plan could be generated"
-                needed = proposal.proposal_text or "a decision or clarification from a human"
+                needed = proposal.proposal_text or self.m.t("n_human_decision")
                 context.add_open_item(comment.comment_id, reason, needed)
                 self.audit.write("orchestrator", "plan_escalated",
                                  params={"comment_id": comment.comment_id}, result=reason)
@@ -282,9 +356,9 @@ class Orchestrator:
             if plan.confidence.value < 0.60:
                 context.add_open_item(
                     comment_id,
-                    f"confidence {plan.confidence.value:.2f} is below the 0.60 floor "
-                    f"(limited by {plan.confidence.limiting_component})",
-                    "human review of the interpretation and the proposed change")
+                    self.m.t("r_below_floor", value=f"{plan.confidence.value:.2f}",
+                             component=plan.confidence.limiting_component),
+                    self.m.t("n_review_interpretation"))
                 plan.status = "escalated"
                 continue
 
@@ -293,7 +367,7 @@ class Orchestrator:
                     blocked = self._autonomous_block_reason(plan)
                     if blocked:
                         context.add_open_item(comment_id, blocked,
-                                              "an explicit decision by the project architect")
+                                              self.m.t("n_architect_decision"))
                         plan.status = "escalated"
                         continue
                 else:
@@ -306,8 +380,8 @@ class Orchestrator:
                     self.audit.write("consultation_agent", "decision_recorded",
                                      plan_id=plan.plan_id, result=outcome)
                     if outcome == "reject":
-                        context.add_open_item(comment_id, "the user rejected the proposed change",
-                                              "a different correction, or a response to the authority")
+                        context.add_open_item(comment_id, self.m.t("r_rejected"),
+                                              self.m.t("n_other_correction"))
                         continue
                     if outcome == "alternative":
                         index = ord(decision.user_choice.split(":")[1].strip().upper()) - ord("B")
@@ -317,18 +391,18 @@ class Orchestrator:
                             self._simulated.add(plan.plan_id)
                             context.plans.append(plan)
                     elif outcome in ("question", "modify"):
-                        why = ("the user asked to modify the correction: " + decision.user_note
-                               if outcome == "modify" else "the consultation question is unanswered")
-                        context.add_open_item(comment_id, why,
-                                              "an answer to the consultation question")
+                        why = (self.m.t("r_modify", note=decision.user_note)
+                               if outcome == "modify" else self.m.t("r_unanswered"))
+                        context.add_open_item(comment_id, why, self.m.t("n_answer"))
                         plan.status = "awaiting_user"
                         continue
 
             result = executor.execute(plan)
             if not result.ok:
                 plan.status = "failed"
-                context.add_open_item(comment_id, f"execution failed: {result.error}",
-                                      "investigation of the drawing API failure")
+                context.add_open_item(comment_id,
+                                      self.m.t("r_execution_failed", error=result.error),
+                                      self.m.t("n_investigate_api"))
                 continue
             plan.status = "applied"
             for change in result.changes:
@@ -425,7 +499,7 @@ class Orchestrator:
         before_model = json.loads(self.versions.model_path(parent).read_text(encoding="utf-8"))
         after_model = self.driver.model
         files = preview_module.write_previews(self.output_dir, before_model, after_model,
-                                              change_map, result.version)
+                                              change_map, result.version, self.m)
         context_path = self.output_dir / "project_context.json"
         context_path.write_text(context.to_json() + "\n", encoding="utf-8")
         files["project_context"] = str(context_path)
@@ -452,17 +526,18 @@ class Orchestrator:
                 continue
             if any(existing["ref"] == item.comment_id for existing in context.open_items):
                 continue
-            context.add_open_item(item.comment_id, item.note or item.status.value,
-                                  "human review")
+            context.add_open_item(item.comment_id,
+                                  item.note or self.m.status(item.status),
+                                  self.m.t("n_human_review"))
         for constraint in validation.constraints:
             if constraint.status == "not_evaluated":
                 context.add_open_item(constraint.constraint_id,
-                                      constraint.note or "constraint could not be measured",
-                                      "the missing reference, or a manual check")
+                                      constraint.note or self.m.t("r_not_measured"),
+                                      self.m.t("n_missing_reference"))
         for regression in validation.regressions:
             context.add_open_item(regression["constraint_id"],
-                                  f"regression: {regression['rule']} now fails",
-                                  "rollback or a corrected plan")
+                                  self.m.t("r_regression", rule=regression["rule"]),
+                                  self.m.t("n_rollback"))
 
     # ------------------------------------------------------------------
     def _definition_of_done(self, context: ProjectContext, result: RunResult) -> list[tuple[str, bool]]:
@@ -482,22 +557,20 @@ class Orchestrator:
             any(item["ref"] for item in context.open_items)
             for decision in result.decisions)
         return [
-            ("Every supplied file appears in the input manifest with a read status.",
-             bool(context.input_manifest)),
-            ("Every municipal comment has a comment object, a status and a confidence.",
+            (self.m.t("dod_manifest"), bool(context.input_manifest)),
+            (self.m.t("dod_comments"),
              bool(comments) and validation is not None
              and len(validation.comments) == len(comments)),
-            ("Every comment marked Resolved has measured evidence.", resolved_with_evidence),
-            ("Every change traces to a comment id and a plan id.", traced),
-            ("Every applied plan was simulated and pre-validated.", simulated),
-            ("The full constraint ledger was validated; no regression and no CRITICAL failure.",
-             validation is not None and validation.result != "failed"),
-            ("Every consultation question was answered or is listed as open.", answered),
-            ("The original source file is byte-identical to its ingest checksum.", original_intact),
-            ("A new immutable version exists with its manifest and audit log.", bool(result.version)),
-            ("Previews, comparison and highlighted change map are generated.",
+            (self.m.t("dod_evidence"), resolved_with_evidence),
+            (self.m.t("dod_traceability"), traced),
+            (self.m.t("dod_simulated"), simulated),
+            (self.m.t("dod_ledger"), validation is not None and validation.result != "failed"),
+            (self.m.t("dod_questions"), answered),
+            (self.m.t("dod_original"), original_intact),
+            (self.m.t("dod_version"), bool(result.version)),
+            (self.m.t("dod_previews"),
              "comparison" in result.files and "change_map" in result.files),
-            ("Open items name what is needed and from whom.",
+            (self.m.t("dod_open_items"),
              all(item["needed"] for item in context.open_items)),
         ]
 
@@ -517,15 +590,16 @@ class Orchestrator:
                 comment.comment_id, status,
                 note="markup-only run: no editable model, nothing was measured or changed"))
             context.add_open_item(
-                comment.comment_id,
-                "markup-only run: the comment was interpreted but nothing could be measured",
-                comment.normalized_requirement or "a drafter to execute the instruction")
+                comment.comment_id, self.m.t("r_markup_only"),
+                comment.summary or comment.normalized_requirement or self.m.t("n_drafter"))
         validation.result = "passed_with_open_items"
         result.validation = validation
         result.definition_of_done = self._definition_of_done(context, result)
+        result.language = self.m.code
+        result.llm = self._llm_summary()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         result.report = build_report(context, validation, [], [], [], "markup", "original",
-                                     {}, result.definition_of_done, set())
+                                     {}, result.definition_of_done, set(), self.m)
         report_path = self.output_dir / "correction_report.md"
         report_path.write_text(result.report, encoding="utf-8")
         result.files["correction_report"] = str(report_path)

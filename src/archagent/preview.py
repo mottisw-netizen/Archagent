@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from .drawing.geometry import Box, box_from_dict
+from .lang.messages import DEFAULT as DEFAULT_MESSAGES, Messages
 from .models import ChangeRecord, CommentStatus, ValidationResult
 
 #: SKILL.md 13 colour key.
@@ -25,13 +26,17 @@ COLOURS = {
     "unresolved": "#e8862d",
 }
 
-LEGEND = [
-    ("modified", "New or modified elements"),
-    ("removed", "Removed or replaced elements"),
-    ("indirect", "Elements affected indirectly"),
-    ("resolved", "Municipal comments resolved by the modification"),
-    ("unresolved", "Unresolved issues requiring review"),
+LEGEND_KEYS = [
+    ("modified", "legend_modified"),
+    ("removed", "legend_removed"),
+    ("indirect", "legend_indirect"),
+    ("resolved", "legend_resolved"),
+    ("unresolved", "legend_unresolved"),
 ]
+
+
+def legend(messages: Messages = DEFAULT_MESSAGES) -> list[tuple[str, str]]:
+    return [(kind, messages.t(key)) for kind, key in LEGEND_KEYS]
 
 TYPE_STYLE = {
     "building": ("#dfe6ee", "#41556b"),
@@ -51,8 +56,9 @@ MARGIN = 40
 class Preview:
     """Renders one model state."""
 
-    def __init__(self, model: dict):
+    def __init__(self, model: dict, messages: Messages | None = None):
         self.model = model
+        self.m = messages or DEFAULT_MESSAGES
         plot = model.get("site", {}).get("plot")
         boxes = [box_from_dict(e["geometry"]) for e in model.get("elements", [])
                  if "geometry" in e]
@@ -83,8 +89,8 @@ class Preview:
         if plot:
             box = box_from_dict(plot)
             parts.append(self._rect(box, "#ffffff", "#333333", dash="6 4"))
-            parts.append(self._text(self._x(box.x) + 4, self._y(box.y_max) - 6, "plot boundary",
-                                    size=11, colour="#555555"))
+            parts.append(self._text(self._x(box.x) + 4, self._y(box.y_max) - 6,
+                                    self.m.t("plot_boundary"), size=11, colour="#555555"))
         for element in self.model.get("elements", []):
             if "geometry" not in element or element.get("type") in ("dimension", "text"):
                 continue
@@ -130,7 +136,7 @@ class Preview:
         parts = ['<g>']
         y = self.height - MARGIN + 6
         x = MARGIN
-        for kind, description in LEGEND:
+        for kind, description in legend(self.m):
             parts.append(f'<rect x="{x}" y="{y - 10}" width="12" height="12" '
                          f'fill="{COLOURS[kind]}"/>')
             parts.append(self._text(x + 17, y, description, size=10, colour="#444444"))
@@ -192,22 +198,24 @@ def highlight_maps(change_map: dict) -> tuple[dict[str, str], dict[str, str]]:
         if entry["comments"]:
             tags[entry["element_id"]] = ", ".join(entry["comments"])
         elif entry["highlight"] == "indirect":
-            tags[entry["element_id"]] = "affected"
+            tags[entry["element_id"]] = DEFAULT_MESSAGES.t("affected")
     return highlights, tags
 
 
 def write_previews(output_dir: Path, before_model: dict, after_model: dict,
-                   change_map: dict, version: str) -> dict:
+                   change_map: dict, version: str,
+                   messages: Messages | None = None) -> dict:
     """Write before/after/highlighted SVGs plus the comparison page."""
+    m = messages or DEFAULT_MESSAGES
     output_dir = Path(output_dir)
     compare_dir = output_dir / "compare"
     compare_dir.mkdir(parents=True, exist_ok=True)
     highlights, tags = highlight_maps(change_map)
 
-    before_svg = Preview(before_model).render(title="Before")
-    after_svg = Preview(after_model).render(title=f"After ({version})")
-    highlighted_svg = Preview(after_model).render(highlights, tags,
-                                                  title=f"Changes ({version})")
+    before_svg = Preview(before_model, m).render(title=m.t("before"))
+    after_svg = Preview(after_model, m).render(title=m.t("after", version=version))
+    highlighted_svg = Preview(after_model, m).render(
+        highlights, tags, title=m.t("changes", version=version))
 
     files = {
         "before": compare_dir / "before.svg",
@@ -222,28 +230,31 @@ def write_previews(output_dir: Path, before_model: dict, after_model: dict,
     files["change_map"].write_text(json.dumps(change_map, indent=2, ensure_ascii=False) + "\n",
                                    encoding="utf-8")
     files["comparison"].write_text(
-        _comparison_page(before_svg, highlighted_svg, change_map, version), encoding="utf-8")
+        _comparison_page(before_svg, highlighted_svg, change_map, version, m),
+        encoding="utf-8")
     return {name: str(path) for name, path in files.items()}
 
 
-def _comparison_page(before_svg: str, after_svg: str, change_map: dict, version: str) -> str:
+def _comparison_page(before_svg: str, after_svg: str, change_map: dict, version: str,
+                     m: Messages = DEFAULT_MESSAGES) -> str:
     rows = []
     for entry in change_map["entries"]:
         changes = "<br>".join(
             f"{html.escape(str(c['property']))}: {html.escape(str(c['before']))} → "
-            f"{html.escape(str(c['after']))}" for c in entry["changes"]) or "affected indirectly"
+            f"{html.escape(str(c['after']))}" for c in entry["changes"]) \
+            or html.escape(m.t("affected_indirectly"))
         rows.append(
             f"<tr><td><span class='dot' style=\"background:"
             f"{COLOURS.get(entry['highlight'], '#888')}\"></span>"
             f"{html.escape(entry['element_id'])}</td>"
             f"<td>{html.escape(', '.join(entry['comments']) or '-')}</td>"
             f"<td>{changes}</td></tr>")
-    legend = "".join(
+    legend_html = "".join(
         f"<span class='key'><span class='dot' style=\"background:{COLOURS[kind]}\"></span>"
-        f"{html.escape(text)}</span>" for kind, text in LEGEND)
+        f"{html.escape(text)}</span>" for kind, text in legend(m))
     return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<title>Before / after - {html.escape(version)}</title>
+<html lang="{m.code}" dir="{m.text_direction}"><head><meta charset="utf-8">
+<title>{html.escape(m.t("compare_title", version=version))}</title>
 <style>
  body {{ font-family: system-ui, sans-serif; margin: 24px; color: #222; background: #fafafa; }}
  h1 {{ font-size: 20px; }}
@@ -258,15 +269,17 @@ def _comparison_page(before_svg: str, after_svg: str, change_map: dict, version:
  input[type=range] {{ width: 100%; max-width: 960px; margin: 10px 0 20px; }}
 </style></head>
 <body>
-<h1>Before / after - {html.escape(version)}</h1>
-<div>{legend}</div>
+<h1>{html.escape(m.t("compare_title", version=version))}</h1>
+<div>{legend_html}</div>
 <input type="range" id="slider" min="0" max="100" value="50">
 <div class="frame" id="frame">
   <div>{before_svg}</div>
   <div class="layer" id="after" style="width:50%">{after_svg}</div>
 </div>
-<table><thead><tr><th>Element</th><th>Comment</th><th>Change</th></tr></thead>
-<tbody>{''.join(rows) or '<tr><td colspan="3">no changes</td></tr>'}</tbody></table>
+<table><thead><tr><th>{html.escape(m.t("th_element"))}</th>
+<th>{html.escape(m.t("th_comment"))}</th>
+<th>{html.escape(m.t("th_change"))}</th></tr></thead>
+<tbody>{''.join(rows) or f'<tr><td colspan="3">{html.escape(m.t("no_changes"))}</td></tr>'}</tbody></table>
 <script>
  const slider = document.getElementById('slider');
  const after = document.getElementById('after');
