@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# archagent run artefacts
+examples/project/versions/
+examples/project/output/

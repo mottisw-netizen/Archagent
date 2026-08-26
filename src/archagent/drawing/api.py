@@ -1,0 +1,184 @@
+"""The drawing-editing tool interface (SKILL.md 12).
+
+Everything above this layer speaks only these operations.  A CAD/BIM adapter
+implements :class:`DrawingDriver` against the host application's API; the
+reference :class:`~archagent.drawing.json_model.JSONModelDriver` implements it
+against a plain JSON model so the whole pipeline is runnable and testable
+without a CAD seat.
+
+Two rules are enforced here rather than left to convention:
+
+* mutations are rejected unless they cite an approved plan
+  (:meth:`DrawingDriver.authorised`);
+* every mutation returns a :class:`~archagent.models.ChangeRecord` carrying
+  ``before`` and ``after`` - a mutation that cannot report both is a failure.
+"""
+
+from __future__ import annotations
+
+import abc
+from contextlib import contextmanager
+from typing import Any, Iterator
+
+from ..models import ChangeRecord, Measurement
+
+
+class DrawingAPIError(RuntimeError):
+    """Base class for every driver failure (SKILL.md 21)."""
+
+
+class ElementNotFound(DrawingAPIError):
+    pass
+
+
+class AmbiguousElement(DrawingAPIError):
+    def __init__(self, message: str, candidates: list[str] | None = None):
+        super().__init__(message)
+        self.candidates = candidates or []
+
+
+class UnsupportedOperation(DrawingAPIError):
+    pass
+
+
+class NotAuthorised(DrawingAPIError):
+    """A mutation was attempted without an approved plan id."""
+
+
+class MeasurementError(DrawingAPIError):
+    pass
+
+
+class DrawingDriver(abc.ABC):
+    """Abstract drawing-editing API."""
+
+    name = "abstract"
+    read_only = False
+
+    def __init__(self) -> None:
+        self._plan_id: str | None = None
+        self.call_log: list[dict] = []
+
+    # ------------------------------------------------------------------
+    # authorisation
+    # ------------------------------------------------------------------
+    @contextmanager
+    def authorised(self, plan_id: str) -> Iterator["DrawingDriver"]:
+        """Allow mutations for the duration of the block, for one plan only."""
+        if not plan_id:
+            raise NotAuthorised("a plan id is required to mutate the model")
+        previous, self._plan_id = self._plan_id, plan_id
+        try:
+            yield self
+        finally:
+            self._plan_id = previous
+
+    def _require_authorisation(self, tool: str) -> str:
+        if self.read_only:
+            raise NotAuthorised(f"{tool}: driver is read-only")
+        if not self._plan_id:
+            raise NotAuthorised(f"{tool}: mutation attempted outside an approved plan")
+        return self._plan_id
+
+    # ------------------------------------------------------------------
+    # query
+    # ------------------------------------------------------------------
+    @abc.abstractmethod
+    def find_element(self, **filters: Any) -> list[str]:
+        """Return element ids matching type/layer/label/level/sheet filters."""
+
+    @abc.abstractmethod
+    def get_element(self, element_id: str) -> dict:
+        ...
+
+    @abc.abstractmethod
+    def get_element_geometry(self, element_id: str) -> dict:
+        ...
+
+    @abc.abstractmethod
+    def get_element_properties(self, element_id: str) -> dict:
+        ...
+
+    @abc.abstractmethod
+    def sheets(self) -> list[dict]:
+        ...
+
+    # ------------------------------------------------------------------
+    # measurement
+    # ------------------------------------------------------------------
+    @abc.abstractmethod
+    def measure(self, subject: dict, metric: str, basis: str = "clear") -> Measurement:
+        """Measure *metric* on *subject*; the single source of reported values."""
+
+    @abc.abstractmethod
+    def calculate_distance(self, a: str, b: str, mode: str = "clear") -> float:
+        ...
+
+    @abc.abstractmethod
+    def calculate_area(self, element_id: str) -> float:
+        ...
+
+    @abc.abstractmethod
+    def check_overlap(self, a: str, b: str) -> dict:
+        ...
+
+    @abc.abstractmethod
+    def check_clearance(self, element_id: str, against: list[str], required: float) -> dict:
+        ...
+
+    # ------------------------------------------------------------------
+    # mutation
+    # ------------------------------------------------------------------
+    @abc.abstractmethod
+    def move_element(self, element_id: str, distance: float, direction: str) -> ChangeRecord:
+        ...
+
+    @abc.abstractmethod
+    def resize_element(self, element_id: str, parameter: str, value: float, anchor: str = "") -> ChangeRecord:
+        ...
+
+    @abc.abstractmethod
+    def rotate_element(self, element_id: str, angle: float, pivot: str = "centre") -> ChangeRecord:
+        ...
+
+    @abc.abstractmethod
+    def delete_element(self, element_id: str) -> ChangeRecord:
+        ...
+
+    @abc.abstractmethod
+    def create_element(self, element_type: str, geometry: dict, properties: dict) -> ChangeRecord:
+        ...
+
+    @abc.abstractmethod
+    def update_text(self, element_id: str, text: str) -> ChangeRecord:
+        ...
+
+    @abc.abstractmethod
+    def update_dimension(self, dimension_id: str, value: float | None = None, recompute: bool = False) -> ChangeRecord:
+        ...
+
+    @abc.abstractmethod
+    def update_schedule(self, schedule_id: str, recompute: bool = True) -> ChangeRecord:
+        ...
+
+    # ------------------------------------------------------------------
+    # lifecycle
+    # ------------------------------------------------------------------
+    @abc.abstractmethod
+    def snapshot(self) -> Any:
+        """Opaque state used to roll a failed transaction back."""
+
+    @abc.abstractmethod
+    def restore(self, snapshot: Any) -> None:
+        ...
+
+    @abc.abstractmethod
+    def sandbox(self) -> "DrawingDriver":
+        """An isolated copy used for simulation; never shares state."""
+
+    @abc.abstractmethod
+    def save_as(self, path) -> str:
+        ...
+
+    def log(self, tool: str, params: dict, result: Any = "ok") -> None:
+        self.call_log.append({"tool": tool, "params": params, "result": result, "plan_id": self._plan_id})
