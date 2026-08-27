@@ -22,3 +22,21 @@ class Sheet(Serialisable):
     scale: str = ""
     view: str = ""
     source: str = ""
+
+
+@dataclass
+class Revision(Serialisable):
+    """One changelog entry for a sheet - who changed it, when, and why.
+
+    ``Sheet.revision`` is just the label ("B") stamped on the sheet itself;
+    this is the accompanying record a revision cloud/changelog would carry -
+    kept as its own object because a sheet only ever has one current label,
+    while its revision history can have many entries.
+    """
+
+    revision_id: str
+    sheet_number: str
+    number: str = ""
+    date: str = ""
+    description: str = ""
+    author: str = ""

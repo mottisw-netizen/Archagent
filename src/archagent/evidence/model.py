@@ -41,6 +41,14 @@ class Evidence(Serialisable):
     current_revision: bool = True
     validity: str = ""
     required_stage: str = ""
+    #: provenance (spec §13/§34) - where in the source document this came
+    #: from, and how confidently. A scanned document read by OCR should
+    #: always set extraction_method/confidence; a manually-entered record can
+    #: leave confidence at its default (1.0) since a human vouched for it.
+    page: int | None = None
+    region: str = ""
+    extraction_method: str = "manual"
+    confidence: float = 1.0
 
 
 class EvidenceStatus(str, enum.Enum):
@@ -71,6 +79,7 @@ class ProfessionalApprovalStatus(str, enum.Enum):
     PENDING = "pending"
     PRESENT = "present"
     REJECTED = "rejected"
+    EXPIRED = "expired"
     NOT_REQUIRED = "not_required"
 
 

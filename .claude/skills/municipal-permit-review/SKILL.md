@@ -1650,6 +1650,14 @@ aggregate this across a project's requirements - the tool a submission-
 readiness check (§25.9) or a report uses to say "this cannot proceed to
 Start of Work yet" without re-deriving stage logic itself.
 
+Every `RequirementLifecycle` is also version-aware: `observed_in_version` is
+set once, at creation; `resolved_in_version` is set by
+`LifecycleTracker.resolve(requirement_id, version)`; `last_validated_version`
+is set by `LifecycleTracker.mark_validated(requirement_id, version)`, called
+whenever a new plan is checked against a requirement that was already open -
+so a caller can always answer "which version last confirmed this one still
+holds" without re-deriving it from the audit log.
+
 ### 25.3 Authority profiles
 
 An authority profile is a municipality-specific rule pack - department names,
@@ -1695,6 +1703,13 @@ several of those at once (`archagent.evidence`):
   `MISSING`, never assumed fine.
 - `ProfessionalApproval` / `archagent.professionals.ApprovalTracker` track who
   owns a requirement's sign-off, separately from whether its geometry passes.
+  `ProfessionalApprovalStatus` includes `EXPIRED` alongside `PENDING, PRESENT,
+  REJECTED, NOT_REQUIRED` - a lapsed sign-off is never read as still present.
+- Every `Evidence` carries extraction provenance: `page`, `region`,
+  `extraction_method` (defaults to `"manual"`), `confidence` (defaults to
+  `1.0`). A scanned document read by OCR should set these explicitly; a
+  manually-entered record's default confidence is not a claim about accuracy,
+  only that no automated extraction step introduced its own uncertainty.
 - `archagent.evidence.resolve(...)` computes `ResolutionState` -
   `GEOMETRY_RESOLVED, EVIDENCE_RESOLVED, APPROVAL_RESOLVED, WORKFLOW_RESOLVED,
   FULLY_RESOLVED` - and a requirement needing geometry *and* approval is
@@ -1711,11 +1726,11 @@ reports today (§14.1) - that vocabulary is unchanged. A project that needs
 `FULLY_RESOLVED`-style reporting composes these modules explicitly; see
 `tests/test_evidence.py` and `tests/test_petah_tikva.py` for worked examples.
 
-### 25.5 Traffic, site/drainage, and environmental semantic models
+### 25.5 Traffic, site/drainage, environmental, and architecture semantic models
 
-Three data-model packages give traffic, civil/drainage, and environmental
-requirements their own objects instead of folding everything into generic
-dimensions:
+Four data-model packages give traffic, civil/drainage, environmental, and
+architectural-envelope requirements their own objects instead of folding
+everything into generic dimensions:
 
 - `archagent.traffic` - `ParkingSpace`, `DriveAisle`, `Ramp`, `TurningPath`,
   `ParkingBalance`. `parking.reconcile_balance(...)` compares the parking
@@ -1741,12 +1756,27 @@ dimensions:
   the radiation report containing background + forecast + shielding, EV
   charging reaching every parking space).
 
+- `archagent.architecture` - `Facade`, `FacadePanel`, `Balcony`, `Railing`,
+  `Louver`, `Pergola`, `Screen`, `ElevationDetail` for the building-envelope
+  comments (cladding colour, pergola/screen slat spacing, balcony railings)
+  that are not ordinary room/wall dimensions. Its landscape/development
+  validators - `validate_area_ratio` (landscaping share, permeable area),
+  `validate_soil_depth`, `validate_distance_to_plot_boundary`,
+  `validate_site_level_difference` - are pure functions over already-measured
+  numbers, the same pattern as `traffic.parking.reconcile_balance`: a ratio of
+  two areas is a composite check the single-metric `Requirement`/
+  `ConstraintLedger` comparison does not compute by itself, so it is not
+  duplicated logic, it is the one thing on top of it spec §5.2 asks for.
+
 **What this is not:** a live Civil 3D reader. `archagent.site.surfaces.Surface`
 is a point-cloud of surveyed spot elevations with nearest-neighbour lookup,
 explicitly *not* a triangulated surface - Civil 3D-native objects (Alignment,
 Profile, Surface/TIN, Corridor, PipeNetwork, Parcel, ...) are not read by any
 adapter yet. Do not present this layer's data model as equivalent to reading
-a real Civil 3D drawing; see §25.13.
+a real Civil 3D drawing; see §25.13. Nor is any of this a facade-recognition
+tool: `Facade`/`FacadePanel`/etc. are records a caller populates from a
+drawing or a document, not something extracted automatically from a Revit
+elevation view.
 
 ### 25.6 Conditional requirements
 
@@ -1772,9 +1802,26 @@ check that stays as it was - the two compose (a `ConditionalRequirement`
 decides *whether* the rule applies; the drainage validator still does the
 actual distance measurement).
 
+`archagent.lang.spatial` recognises the rest of spec §17/§26's vocabulary as a
+classifier, not as new Requirement-producing parser rules:
+`intercardinal_direction_of(text)` (`צפון-מערב` etc.),
+`spatial_relations_in(text)` (`מעל / מתחת / בצמוד / לפני / אחרי / מכיוון /
+לכיוון / מחוץ למגרש / בתוך תחום המגרש / משפת הנסיעה / מקו התיעול`), and
+`looks_conditional(text)` (`אם / כאשר / במידה ו... / במקרה של...`) - the last
+one is exactly the signal for "this comment is a `ConditionalRequirement`
+candidate, model it as one instead of a flat rule." These are deliberately
+kept **out of** `archagent.lang.hebrew.HEBREW.directions`: that dict feeds
+straight into `Requirement.subject["edge"]` and from there into
+`archagent.drawing.geometry`, which only has axes for the four cardinal
+directions - an intercardinal value flowing through there would not fail
+gracefully, it would raise inside measurement. So compound directions are
+recognised, never fed into the deterministic setback parser.
+
 **Not yet built:** a Hebrew parser that reads `אם / כאשר / במידה ו...` prose
-and produces a `Condition` automatically - conditions are constructed
-programmatically or from structured data today, not extracted from free text.
+and produces a `Condition` automatically - `looks_conditional(...)` flags
+that a comment is conditional; turning its actual clause into a structured
+`Condition` is still constructed programmatically or from structured data,
+not extracted from free text.
 
 ### 25.7 Trees and external infrastructure
 
@@ -1831,6 +1878,10 @@ and must never be presented as, a legal authority approval.
 (`A-101`, `A-TR-02`, `DR-01`) and which revision is current, the same
 "never assume the newest is the only one that ever existed" caution the
 lifecycle tracker applies to comments, applied to drawing sheets.
+`archagent.sheets.Revision` is a separate changelog entry (who changed a
+sheet, when, why) - a `Sheet` only ever carries its current revision label;
+`SheetIndex.add_revision_note(...)` / `.notes_for(sheet_number)` keep the
+history of *why* it changed alongside the sheet objects themselves.
 
 ### 25.11 Cross-discipline dependency graph
 
@@ -1867,36 +1918,50 @@ overclaim, never fabricate an approval or a measurement, and state plainly
 what is not done.
 
 - **Implemented and tested:** requirement-type classification; permit
-  lifecycle/supersession; stage-aware workflow enforcement
-  (`workflow_status`/`blocking_requirements`); the Petah Tikva authority
-  profile pack; the evidence/approval model and checker; stricter resolution
-  semantics; a general structured `ConditionalRequirement` engine; the tree/
-  forestry model; the generic external-infrastructure requirement record;
-  traffic parking/turning/clearance data models and validators; the site
-  topology/elevation/drainage data models and validators; the environmental
-  semantic model and its spec-example checks; sheet/revision tracking; the
-  cross-discipline dependency graph extension; the submission-readiness gate;
-  the multi-disciplinary planning-alternatives structure; requirement-type
+  lifecycle/supersession with version-aware fields (`observed_in_version` /
+  `resolved_in_version` / `last_validated_version`); stage-aware workflow
+  enforcement (`workflow_status`/`blocking_requirements`); the Petah Tikva
+  authority profile pack; the evidence/approval model (with extraction
+  provenance - `page`/`region`/`extraction_method`/`confidence` - and an
+  `EXPIRED` professional-approval status) and its checker; stricter
+  resolution semantics; a general structured `ConditionalRequirement` engine;
+  the tree/forestry model; the generic external-infrastructure requirement
+  record; traffic parking/turning/clearance data models and validators; the
+  site topology/elevation/drainage data models and validators; the
+  environmental semantic model and its spec-example checks; the architecture
+  envelope model (`Facade`/`Balcony`/`Pergola`/`Screen`/etc.) and its
+  landscape/development ratio validators; Hebrew directional/spatial/
+  conditional vocabulary recognition (`archagent.lang.spatial`); sheet
+  tracking plus a dedicated `Revision` changelog; the cross-discipline
+  dependency graph extension; the submission-readiness gate; the
+  multi-disciplinary planning-alternatives structure; requirement-type
   surfaced in the Web Editor payload and UI; a Petah Tikva regression corpus
   (`tests/fixtures/petah_tikva/`) and an end-to-end fixture project
   (`examples/project_petah_tikva/`, `tests/test_petah_tikva.py`).
-- **Partially implemented:** Hebrew conditional-language parsing (`אם /
-  כאשר / במידה ו...` are not yet parsed into a `Condition` automatically - the
-  engine exists, the natural-language front end for it does not); the
-  submission-readiness gate and the planning-alternatives structure are
-  library functions a caller composes, not wired into `Orchestrator.run()`
-  or the Web Editor UI yet.
+- **Partially implemented:** Hebrew conditional-language *detection*
+  (`archagent.lang.spatial.looks_conditional`) flags that a comment reads as
+  conditional, but does not extract its clause into a `Condition`
+  automatically - the engine and the detector both exist, the piece that
+  connects them (turning `אם X, אז Y` prose into a populated
+  `ConditionalRequirement`) does not; the submission-readiness gate and the
+  planning-alternatives structure are library functions a caller composes,
+  not wired into `Orchestrator.run()` or the Web Editor UI yet; intercardinal
+  directions (`צפון-מערב`) are recognised by `archagent.lang.spatial` but
+  deliberately not fed into the deterministic setback parser, whose geometry
+  engine only has axes for the four cardinal directions.
 - **Not implemented:** automatic parking-schedule extraction from a drawing
   (reconciliation exists, but nothing yet reads a schedule table into a
   `ParkingBalance` automatically); the professional/document extractor that
   would populate `Evidence` records from an actual PDF
   (`archagent.evidence.extractor` from the spec's module list does not exist -
-  PDFs are still read/markup only, per §3.3); an authority-profile-aware
-  router (routing still uses the generic department/discipline table, not the
-  authority profile's `disciplines.yaml`, though both agree for Petah Tikva);
-  evidence/approval references and cross-discipline highlighting in the Web
-  Editor UI (§25.12); multi-municipality dashboards; automated professional
-  report generation; historical learning from resolved comments.
+  PDFs are still read/markup only, per §3.3, though `Evidence` now has the
+  `page`/`region`/`extraction_method`/`confidence` fields such an extractor
+  would populate); an authority-profile-aware router (routing still uses the
+  generic department/discipline table, not the authority profile's
+  `disciplines.yaml`, though both agree for Petah Tikva); evidence/approval
+  references and cross-discipline highlighting in the Web Editor UI
+  (§25.12); multi-municipality dashboards; automated professional report
+  generation; historical learning from resolved comments.
 - **Requires external CAD capability, not provided here:** any live reading
   of Civil 3D-native objects (Alignment, Profile, Corridor, PipeNetwork,
   Parcel, TIN Surface) - the AutoCAD/Civil 3D adapter still operates on plain

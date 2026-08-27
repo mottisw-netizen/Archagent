@@ -88,6 +88,22 @@ def test_professional_approval_satisfied_property():
     present = ProfessionalApproval(requirement_id="REQ-1",
                                    approval_status=ProfessionalApprovalStatus.PRESENT)
     assert present.satisfied is True
+    expired = ProfessionalApproval(requirement_id="REQ-1",
+                                   approval_status=ProfessionalApprovalStatus.EXPIRED)
+    assert expired.satisfied is False
+
+
+def test_evidence_carries_extraction_provenance():
+    scanned = Evidence(type="acoustic_report", document="ENV-03.pdf", page=4,
+                       region="table 2", extraction_method="ocr", confidence=0.62)
+    assert scanned.page == 4
+    assert scanned.extraction_method == "ocr"
+    assert scanned.confidence == 0.62
+    # A manually-entered record defaults to full confidence, never fabricated
+    # low/high - it simply was not extracted by OCR.
+    manual = Evidence(type="hydrologic_report")
+    assert manual.extraction_method == "manual"
+    assert manual.confidence == 1.0
 
 
 # ----------------------------------------------------------------------

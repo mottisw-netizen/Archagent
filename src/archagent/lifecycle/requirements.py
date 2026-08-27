@@ -65,7 +65,13 @@ class RequirementLifecycle(Serialisable):
     source_comment_id: str = ""
     first_seen_at: str = field(default_factory=now)
     last_seen_at: str = field(default_factory=now)
+    #: the version this requirement was first observed in - source_version is
+    #: updated to the latest carrying version too (see LifecycleTracker); this
+    #: is the original observation, never overwritten.
     source_version: str = ""
+    observed_in_version: str = ""
+    resolved_in_version: str = ""
+    last_validated_version: str = ""
     status: LifecycleState = LifecycleState.ACTIVE
     supersedes: list[str] = field(default_factory=list)
     superseded_by: list[str] = field(default_factory=list)
@@ -132,6 +138,7 @@ class LifecycleTracker:
             department=comment.department,
             source_comment_id=comment.comment_id,
             source_version=version,
+            observed_in_version=version,
             status=_initial_state(comment),
             required_action_type=comment.required_action,
         )
@@ -158,6 +165,7 @@ class LifecycleTracker:
             department=comment.department,
             source_comment_id=comment.comment_id,
             source_version=version,
+            observed_in_version=version,
             status=_initial_state(comment),
             required_action_type=comment.required_action,
             supersedes=[old.requirement_id],
@@ -172,10 +180,20 @@ class LifecycleTracker:
         """The reconstructed current state: every requirement still open."""
         return [r for r in self.requirements.values() if r.is_open]
 
-    def resolve(self, requirement_id: str) -> None:
+    def resolve(self, requirement_id: str, version: str = "") -> None:
         requirement = self.requirements.get(requirement_id)
         if requirement is not None:
             requirement.status = LifecycleState.RESOLVED
+            if version:
+                requirement.resolved_in_version = version
+
+    def mark_validated(self, requirement_id: str, version: str) -> None:
+        """Record that this requirement was checked against ``version`` -
+        update-instruction §4: revalidate only the requirements a new
+        version actually impacts, and remember when each was last checked."""
+        requirement = self.requirements.get(requirement_id)
+        if requirement is not None:
+            requirement.last_validated_version = version
 
 
 class WorkflowStatus(str, enum.Enum):

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .model import Sheet
+from .model import Revision, Sheet
 
 
 @dataclass
@@ -27,6 +27,7 @@ class SheetIndex:
 
     def __init__(self) -> None:
         self.history: dict[str, SheetHistory] = {}
+        self._revision_notes: dict[str, list[Revision]] = {}
 
     def add(self, sheet: Sheet) -> Sheet:
         record = self.history.setdefault(sheet.sheet_number, SheetHistory(sheet.sheet_number))
@@ -43,3 +44,12 @@ class SheetIndex:
 
     def all_latest(self) -> list[Sheet]:
         return [record.latest for record in self.history.values() if record.latest]
+
+    # ------------------------------------------------------------------
+    def add_revision_note(self, revision: Revision) -> Revision:
+        """Record what changed in one revision, alongside the sheet itself."""
+        self._revision_notes.setdefault(revision.sheet_number, []).append(revision)
+        return revision
+
+    def notes_for(self, sheet_number: str) -> list[Revision]:
+        return list(self._revision_notes.get(sheet_number, []))

@@ -92,6 +92,25 @@ def test_unrelated_department_never_reopens_a_resolved_requirement():
     assert requirement_id not in {r.requirement_id for r in tracker.active()}
 
 
+def test_version_aware_fields_track_observed_resolved_and_validated():
+    tracker = LifecycleTracker()
+    round1 = [_comment("C-1", "יש לתקן את מערכת הניקוז", department="Drainage")]
+    tracker.ingest_round(round1, version="v1")
+    [requirement_id] = list(tracker.requirements)
+    requirement = tracker.requirements[requirement_id]
+
+    assert requirement.observed_in_version == "v1"
+    assert requirement.resolved_in_version == ""
+    assert requirement.last_validated_version == ""
+
+    tracker.mark_validated(requirement_id, "v2")
+    assert tracker.requirements[requirement_id].last_validated_version == "v2"
+
+    tracker.resolve(requirement_id, version="v3")
+    assert tracker.requirements[requirement_id].resolved_in_version == "v3"
+    assert tracker.requirements[requirement_id].status == LifecycleState.RESOLVED
+
+
 def test_default_state_by_requirement_type():
     tracker = LifecycleTracker()
     approval = _comment("C-1", "נדרש אישור אגף התנועה טרם בדיקת התכנית באגף", department="Traffic")
