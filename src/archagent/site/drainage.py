@@ -10,6 +10,7 @@ nothing is inferred that was not added.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from ..evidence.checker import PermitEvidenceChecker
@@ -26,6 +27,32 @@ class DrainageNode(Serialisable):
     invert_level: float | None = None
     #: drainage areas this node directly serves (spec §12 "coverage")
     drainage_area_ids: list[str] = field(default_factory=list)
+    #: chamber dimensions, for chamber_volume() below - a detention/settling
+    #: chamber's own geometry, never a hydraulic capacity claim.
+    shape: str = "rectangular"  # rectangular | cylindrical
+    length: float | None = None
+    width: float | None = None
+    diameter: float | None = None
+    depth: float | None = None
+
+
+def chamber_volume(node: DrainageNode) -> float | None:
+    """Geometric volume from the chamber's own given dimensions.
+
+    This is never a hydraulic-capacity claim (spec §12: "never invent
+    capacity") - whether this volume is *sufficient* for the design flow is a
+    hydrologic-engineering question, answered only by the required
+    `hydrologic_report` evidence (see `validate_capacity_evidence` below),
+    never by this geometric calculation.
+    """
+    if node.shape == "cylindrical":
+        if node.diameter is None or node.depth is None:
+            return None
+        radius = node.diameter / 2.0
+        return math.pi * radius * radius * node.depth
+    if node.length is None or node.width is None or node.depth is None:
+        return None
+    return node.length * node.width * node.depth
 
 
 @dataclass

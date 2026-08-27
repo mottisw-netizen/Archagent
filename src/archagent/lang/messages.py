@@ -124,6 +124,8 @@ ENGLISH: dict[str, str] = {
     "r_no_model": "no editable source model was supplied (or no driver can read it)",
     "r_equal_conflict": "two constraints of equal priority and source conflict: {rules}",
     "r_cycle": "circular dependency between changes",
+    "r_cross_source_conflict": "{source} ({source_scope}) is {distance} from "
+        "{target} ({target_scope}); {required} is required{description}",
     "r_regression": "regression: {rule} now fails",
     "r_markup_only": ("markup-only run: the comment was interpreted but nothing could "
                       "be measured"),
@@ -140,6 +142,7 @@ ENGLISH: dict[str, str] = {
     "n_readable_copy": "a readable copy, or a text/JSON export",
     "n_driver": "a DWG/RVT/IFC adapter, or a JSON model export",
     "n_precedence": "a human decision on which change takes precedence",
+    "n_cross_source_review": "a human decision across the two disciplines involved",
     "n_rollback": "rollback or a corrected plan",
     "n_missing_reference": "the missing reference, or a manual check",
     "n_drafter": "a drafter to execute the instruction",
@@ -371,6 +374,8 @@ HEBREW: dict[str, str] = {
     "r_no_model": "לא סופק מודל מקור הניתן לעריכה (או שאין דרייבר שיודע לקרוא אותו)",
     "r_equal_conflict": "שני אילוצים בעלי עדיפות ומקור זהים סותרים זה את זה: {rules}",
     "r_cycle": "תלות מעגלית בין השינויים",
+    "r_cross_source_conflict": "{source} ({source_scope}) במרחק {distance} מ-"
+        "{target} ({target_scope}); נדרש מרחק של {required}{description}",
     "r_regression": "נסיגה: {rule} אינו מתקיים עוד",
     "r_markup_only": "הרצת סימון בלבד: ההערה פורשה אך לא בוצעה מדידה",
     "r_not_measured": "לא ניתן היה למדוד את האילוץ",
@@ -385,6 +390,7 @@ HEBREW: dict[str, str] = {
     "n_readable_copy": "עותק קריא של הקובץ, או ייצוא לטקסט/JSON",
     "n_driver": "מתאם ל-DWG/RVT/IFC, או ייצוא מודל ל-JSON",
     "n_precedence": "החלטה אנושית איזה שינוי גובר",
+    "n_cross_source_review": "החלטה אנושית בין שתי הדיסציפלינות המעורבות",
     "n_rollback": "חזרה לגרסה קודמת או תוכנית תיקון מתוקנת",
     "n_missing_reference": "המסמך החסר, או בדיקה ידנית",
     "n_drafter": "שרטט שיבצע את ההוראה",

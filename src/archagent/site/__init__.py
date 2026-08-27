@@ -9,6 +9,7 @@ from .drainage import (
     DrainageEdge,
     DrainageNetwork,
     DrainageNode,
+    chamber_volume,
     validate_capacity_evidence,
     validate_coverage,
     validate_elevation_consistency,
@@ -16,14 +17,26 @@ from .drainage import (
     validate_municipal_line_setback,
 )
 from .elevations import ElevationGraph, ElevationPoint, SlopeResult
+from .roads import (
+    Curb,
+    Pipe,
+    Road,
+    Sidewalk,
+    pipe_slope,
+    validate_curb_height,
+    validate_sidewalk_slope,
+)
 from .surfaces import Surface
 from .topology import SiteElement, SiteRelation, SiteTopology
 from .trees import Tree, validate_preservation_radius
 
 __all__ = [
-    "DrainageEdge", "DrainageNetwork", "DrainageNode", "ElevationGraph",
-    "ElevationPoint", "SiteElement", "SiteRelation", "SiteTopology", "SlopeResult",
-    "Surface", "Tree", "validate_capacity_evidence", "validate_coverage",
+    "Curb", "DrainageEdge", "DrainageNetwork", "DrainageNode", "ElevationGraph",
+    "chamber_volume",
+    "ElevationPoint", "Pipe", "Road", "Sidewalk", "SiteElement", "SiteRelation",
+    "SiteTopology", "SlopeResult", "Surface", "Tree", "pipe_slope",
+    "validate_capacity_evidence", "validate_coverage", "validate_curb_height",
     "validate_elevation_consistency", "validate_flow_direction",
     "validate_municipal_line_setback", "validate_preservation_radius",
+    "validate_sidewalk_slope",
 ]

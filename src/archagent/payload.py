@@ -126,6 +126,7 @@ def run_payload(result, messages: Messages | None = None) -> dict:
         "files": {name: Path(path).name for name, path in result.files.items()},
         "paths": result.files,
         "impact": result.impact,
+        "cross_source_conflicts": [violation.to_dict() for violation in result.cross_source_conflicts],
         # The change set travels with the payload so a viewer can highlight the
         # diff without reading a second file.
         "change_set": result.change_set,

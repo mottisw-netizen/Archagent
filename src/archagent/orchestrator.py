@@ -18,6 +18,7 @@ from . import changeset
 from . import preview as preview_module
 from .audit import AuditLog
 from .comments import CommentAnalyzer
+from .cross_source import CrossSourceViolation, check_cross_source_clearance
 from .constraints import (
     ConstraintLedger,
     constraints_from_comments,
@@ -79,6 +80,9 @@ class RunResult:
     consulted: set[str] = field(default_factory=set)
     language: str = "en"
     llm: dict = field(default_factory=dict)
+    #: real geometric conflicts found across two independent open sources
+    #: (archagent.cross_source) - never inferred from the graph alone.
+    cross_source_conflicts: list[CrossSourceViolation] = field(default_factory=list)
 
     @property
     def complete(self) -> bool:
@@ -184,6 +188,8 @@ class Orchestrator:
         result.validation = self._merge_validations(context, validations, routings)
         self.audit.write("validation_agent", "validation_result",
                          result=result.validation.result)
+
+        result.cross_source_conflicts = self._check_cross_source_conflicts(context)
 
         self._record_open_items(context, result)
         result.version = self._store_new_version(context, result, parent, scopes)
@@ -620,6 +626,34 @@ class Orchestrator:
         reason = (routing.reason if routing and routing.reason else self.m.t("r_no_model"))
         return CommentValidation(comment.comment_id, CommentStatus.REQUIRES_HUMAN_REVIEW,
                                  note=reason)
+
+    # ------------------------------------------------------------------
+    def _check_cross_source_conflicts(self, context: ProjectContext) -> list[CrossSourceViolation]:
+        """Real geometric conflicts between two independently-opened sources.
+
+        Unlike the discipline-level nodes in the dependency graph (§25.11 -
+        recorded relationships, never measured), this checks actual element
+        geometry across every pair of open drivers that share the project's
+        site coordinate system - e.g. a civil DWG's municipal drainage line
+        against an architecture model's basement wall. A violation becomes an
+        open item naming both elements and both sources.
+        """
+        violations = check_cross_source_clearance(self.workspace.opened)
+        for violation in violations:
+            self.audit.write("orchestrator", "cross_source_conflict",
+                             params={"source": violation.source_element,
+                                     "target": violation.target_element},
+                             result=f"{violation.distance}m < {violation.required}m")
+            description = f" ({violation.description})" if violation.description else ""
+            context.add_open_item(
+                f"{violation.source_element} / {violation.target_element}",
+                self.m.t("r_cross_source_conflict", source=violation.source_element,
+                        source_scope=violation.source_scope, target=violation.target_element,
+                        target_scope=violation.target_scope,
+                        distance=self.m.value(violation.distance),
+                        required=self.m.value(violation.required), description=description),
+                self.m.t("n_cross_source_review"))
+        return violations
 
     # ------------------------------------------------------------------
     # versioning and artefacts

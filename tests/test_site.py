@@ -12,6 +12,7 @@ from archagent.site import (
     ElevationPoint,
     SiteElement,
     SiteTopology,
+    chamber_volume,
     validate_capacity_evidence,
     validate_coverage,
     validate_elevation_consistency,
@@ -103,6 +104,21 @@ def test_capacity_evidence_never_invented_without_hydrologic_report():
                          covered_elements=["CH-1"], approval_status="approved"))
     issues = validate_capacity_evidence(checker, ["CH-1"], project_id="P-1")
     assert issues == []
+
+
+def test_chamber_volume_rectangular_and_cylindrical():
+    rectangular = DrainageNode("CH-1", "detention_chamber", length=3.0, width=2.0, depth=1.5)
+    assert chamber_volume(rectangular) == 9.0
+
+    cylindrical = DrainageNode("CH-2", "settling_chamber", shape="cylindrical",
+                               diameter=2.0, depth=2.0)
+    import math
+    assert chamber_volume(cylindrical) == math.pi * 1.0 * 1.0 * 2.0
+
+
+def test_chamber_volume_none_when_dimensions_missing():
+    node = DrainageNode("CH-3", "detention_chamber", length=3.0)  # no width/depth
+    assert chamber_volume(node) is None
 
 
 def test_municipal_drainage_line_2m_conditional_setback():

@@ -9,10 +9,12 @@ import pytest
 from archagent.traffic import (
     ParkingBalance,
     ParkingSpace,
+    Ramp,
     TurningPath,
     check_clearances,
     reconcile_balance,
     turning_path_points,
+    validate_ramp_slope,
     validate_space,
     validate_turning_path,
 )
@@ -99,3 +101,39 @@ def test_turning_radius_below_requirement_is_flagged():
     result = validate_turning_path(path, required_inner_radius=3.5, required_outer_radius=6.0)
     assert not result.ok
     assert len(result.issues) == 2
+
+
+# ----------------------------------------------------------------------
+# ramp slope/width (spec §6-7)
+# ----------------------------------------------------------------------
+def test_ramp_slope_within_1_in_8_passes():
+    ramp = Ramp(ramp_id="R-1", width=3.0, slope=0.10)
+    result = validate_ramp_slope(ramp, max_slope=0.125, min_width=3.0)
+    assert result.ok
+
+
+def test_ramp_slope_exceeding_maximum_is_flagged():
+    ramp = Ramp(ramp_id="R-1", width=3.0, slope=0.18)
+    result = validate_ramp_slope(ramp, max_slope=0.125)
+    assert not result.ok
+    assert "0.180" in result.issues[0]
+
+
+def test_ramp_slope_derived_from_elevations_and_length_when_not_given_directly():
+    ramp = Ramp(ramp_id="R-2", width=3.0, top_elevation=99.7, bottom_elevation=96.7, length=10.0)
+    result = validate_ramp_slope(ramp, max_slope=0.5)
+    assert result.ok  # 3.0 / 10.0 = 0.30, under the 0.5 cap
+
+
+def test_ramp_with_no_derivable_slope_is_reported_not_fabricated():
+    ramp = Ramp(ramp_id="R-3", width=3.0)
+    result = validate_ramp_slope(ramp, max_slope=0.125)
+    assert not result.ok
+    assert "no slope could be measured or derived" in result.issues[0]
+
+
+def test_ramp_width_checked_independently_of_slope():
+    ramp = Ramp(ramp_id="R-4", width=2.5, slope=0.10)
+    result = validate_ramp_slope(ramp, max_slope=0.125, min_width=3.0)
+    assert not result.ok
+    assert any("width" in issue for issue in result.issues)

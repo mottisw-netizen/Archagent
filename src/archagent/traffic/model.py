@@ -42,6 +42,7 @@ class Ramp(Serialisable):
     ramp_id: str
     width: float = 0.0
     slope: float | None = None
+    length: float | None = None  # horizontal run, for computing slope from elevations
     top_elevation: float | None = None
     bottom_elevation: float | None = None
     sheet: str = ""
