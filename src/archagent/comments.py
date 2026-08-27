@@ -18,6 +18,7 @@ from typing import Callable
 
 from . import lang
 from .lang import Lexicon, clean, parse_number
+from .lang.requirement_types import classify as classify_requirement_type
 from .llm.client import LLMClient, LLMError
 from .llm.interpret import (
     Interpretation,
@@ -217,6 +218,8 @@ class CommentAnalyzer:
             extraction=reading.extraction,
             interpretation=interpretation,
         )
+        comment.requirement_type = classify_requirement_type(
+            text, comment.language, comment.requirement is not None, comment.required_action)
         return comment
 
     @staticmethod
@@ -254,6 +257,8 @@ class CommentAnalyzer:
             interpretation = max(interpretation, 0.9)
         comment.confidence = comment.confidence.with_(interpretation=interpretation)
         comment.affected_discipline = _discipline_for(department)
+        comment.requirement_type = classify_requirement_type(
+            text, comment.language, comment.requirement is not None, comment.required_action)
         return comment
 
     # ------------------------------------------------------------------
@@ -482,5 +487,6 @@ def _discipline_for(department: str) -> str:
         "Traffic": "traffic", "Parking": "traffic", "Fire Safety": "fire",
         "Accessibility": "accessibility", "Landscaping": "landscape",
         "Drainage": "civil", "Water": "civil", "Infrastructure": "civil",
-        "Engineering": "structure",
+        "Engineering": "structure", "Environment": "environment",
+        "Sanitation": "civil",
     }.get(department, "architecture")

@@ -1,0 +1,60 @@
+# Petah Tikva / project-authority geometry examples (spec §5.3, §39).
+#
+# These are NOT universal Israeli planning rules. Each one is sourced to the
+# supplied municipal record for one specific project and must be re-sourced
+# to the relevant project/authority document before being applied elsewhere.
+# They exist here as the profile's own test data, not as a rule engine.
+- id: bicycle_stroller_room
+  text_he: "חדר עגלות/אופניים"
+  metric: area_per_unit
+  op: ">="
+  value: 0.5
+  unit: m2
+- id: planting_soil_depth
+  text_he: "מצע גנני"
+  metric: soil_depth
+  op: ">="
+  value: 1.5
+  unit: m
+- id: common_landscaping_share
+  text_he: "גינון משותף"
+  metric: landscape_area_ratio
+  op: ">="
+  value: 0.30
+  unit: ratio
+  basis: "of plot area excluding built area"
+- id: permeable_area_share
+  text_he: "שטח פתוח ומחלחל"
+  metric: permeable_area_ratio
+  op: ">="
+  value: 0.15
+  unit: ratio
+  basis: "of plot area"
+- id: development_within_plot
+  text_he: "פיתוח בתוך תחום המגרש"
+  metric: development_inside_plot_boundary
+  op: "=="
+  value: 1
+  unit: boolean
+- id: municipal_drainage_setback
+  text_he: "קו תיעול עירוני"
+  metric: clear_distance
+  op: ">="
+  value: 2.0
+  unit: m
+  basis: "from an existing municipal drainage line, unless a diversion solution is submitted"
+  conditional: true
+- id: column_wall_clearance_general
+  text_he: "מרחק מעמודים/קירות משפת הנסיעה"
+  metric: clear_distance
+  op: ">="
+  value: 0.5
+  unit: m
+  basis: "from the edge of the drive path"
+- id: column_wall_clearance_service_level_2
+  text_he: "מרחק מעמודים/קירות בחניה בשירות רמה 2"
+  metric: clear_distance
+  op: ">="
+  value: 0.75
+  unit: m
+  basis: "from the edge of the drive path, service-level-2 parking"

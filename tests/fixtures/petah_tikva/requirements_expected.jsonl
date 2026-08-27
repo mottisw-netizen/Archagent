@@ -1,0 +1,13 @@
+{"comment_id": "C-001", "requirement_type": "geometric", "has_requirement": true, "required_action": "modify_geometry"}
+{"comment_id": "C-002", "requirement_type": "geometric", "has_requirement": true, "required_action": "modify_geometry"}
+{"comment_id": "C-003", "requirement_type": "design_decision", "has_requirement": false, "required_action": "unparsed"}
+{"comment_id": "C-004", "requirement_type": "annotation", "has_requirement": false, "required_action": "update_schedule"}
+{"comment_id": "C-005", "requirement_type": "geometric", "has_requirement": false, "required_action": "unparsed"}
+{"comment_id": "C-006", "requirement_type": "geometric", "has_requirement": false, "required_action": "unparsed"}
+{"comment_id": "C-007", "requirement_type": "document", "has_requirement": false, "required_action": "unparsed"}
+{"comment_id": "C-008", "requirement_type": "approval", "has_requirement": false, "required_action": "unparsed"}
+{"comment_id": "C-009", "requirement_type": "geometric", "has_requirement": false, "required_action": "unparsed"}
+{"comment_id": "C-010", "requirement_type": "document", "has_requirement": false, "required_action": "unparsed"}
+{"comment_id": "C-011", "requirement_type": "document", "has_requirement": false, "required_action": "unparsed"}
+{"comment_id": "C-012", "requirement_type": "completion_condition", "has_requirement": false, "required_action": "unparsed"}
+{"comment_id": "C-013", "requirement_type": "workflow_gate", "has_requirement": false, "required_action": "unparsed"}

@@ -8,13 +8,22 @@ execute in, and which untouched elements still have to be re-validated.
 from __future__ import annotations
 
 from collections import deque
+from typing import Iterable
 
 from .drawing.api import DrawingAPIError, DrawingDriver
-from .models import Constraint, CorrectionPlan
+from .models import Constraint, CorrectionPlan, MunicipalComment
 
 RELATIONS = ("requires", "modifies", "constrains", "conflicts_with", "invalidates")
 MAX_ORDER = 3
 ORDER_NAMES = {1: "direct", 2: "secondary", 3: "tertiary"}
+
+#: roads_drainage/civil findings can force changes in these disciplines
+#: (Petah Tikva spec §14) - beyond the generic architecture -> traffic
+#: direction the rest of the pipeline already assumes. Keyed by
+#: :attr:`MunicipalComment.affected_discipline`.
+CROSS_DISCIPLINE_DEPENDENCIES: dict[str, tuple[str, ...]] = {
+    "civil": ("architecture", "landscape", "traffic", "structure"),
+}
 
 
 class DependencyGraph:
@@ -89,8 +98,10 @@ class DependencyGraph:
 
 
 def build_graph(plans: list[CorrectionPlan], constraints: list[Constraint],
-                driver: DrawingDriver) -> DependencyGraph:
+                driver: DrawingDriver,
+                comments: Iterable[MunicipalComment] = ()) -> DependencyGraph:
     graph = DependencyGraph()
+    add_discipline_dependencies(graph, comments)
     for constraint in constraints:
         graph.add_node(constraint.constraint_id, "constraint", constraint.rule)
     for plan in plans:
@@ -117,6 +128,30 @@ def build_graph(plans: list[CorrectionPlan], constraints: list[Constraint],
             if element_id in graph.nodes:
                 graph.add_edge(element_id, constraint.constraint_id, "constrains", "direct", "high")
     return graph
+
+
+def add_discipline_dependencies(graph: DependencyGraph,
+                                comments: Iterable[MunicipalComment]) -> None:
+    """Record roads_drainage -> architecture/landscape/parking/structural (spec §14).
+
+    A civil/drainage finding (a municipal drainage line's required setback,
+    say) can force an architectural, landscape or structural change even
+    though no comment or constraint directly names those elements yet - this
+    adds one "discipline" node per discipline actually present among
+    ``comments`` and a ``constrains`` edge from an upstream discipline to
+    each downstream one it can affect, on top of whatever the rest of
+    :func:`build_graph` already built, never in place of it.
+    """
+    present = {comment.affected_discipline for comment in comments}
+    for upstream, downstream_disciplines in CROSS_DISCIPLINE_DEPENDENCIES.items():
+        if upstream not in present:
+            continue
+        upstream_node = graph.add_node(f"discipline:{upstream}", "discipline", upstream)
+        for downstream in downstream_disciplines:
+            if downstream not in present or downstream == upstream:
+                continue
+            downstream_node = graph.add_node(f"discipline:{downstream}", "discipline", downstream)
+            graph.add_edge(upstream_node, downstream_node, "constrains", "secondary", "high")
 
 
 def _constraint_elements(constraint: Constraint) -> list[str]:

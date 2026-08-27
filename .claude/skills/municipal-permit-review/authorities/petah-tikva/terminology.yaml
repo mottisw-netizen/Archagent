@@ -1,0 +1,39 @@
+# Municipality terminology dictionary (spec §25) - Hebrew term -> a short
+# canonical English gloss, for report translation and for anyone reading the
+# corpus who doesn't read Hebrew. Not a metric/element table (those live in
+# archagent.lang.hebrew.HEBREW) - this is documentation of domain vocabulary,
+# including administrative terms the generic lexicon has no use for.
+דרכים: roads
+ניקוז: drainage
+תנועה: traffic
+חניה: parking
+"תכנית פיתוח": development_plan
+"תכנית הגשה": submission_plan
+גרמושקה: architectural_booklet
+עדכון: update
+גרסה: version
+"דרישות לתיקון": correction_requirements
+"התייחסות חוזרת": repeated_review
+"שולחן עגול": roundtable_review
+"אישור אדריכלות": architecture_approval
+"אישור אגף התנועה": traffic_department_approval
+"איכה\"ס": environmental_quality
+תברואה: sanitation
+"שפ\"ע": public_spaces_and_environment
+"פקיד היערות": forestry_officer
+תיעול: drainage_piping
+מיסעה: roadway
+"אבן שפה": curb
+"אבן עליה רכב": mountable_curb
+"אבן שפה מונמכת": dropped_curb
+גינון: landscaping
+"קליטה גננית": planting_establishment
+"רחבה מרוצפת": paved_plaza
+"שוחת השהייה": detention_chamber
+"שוחת שיקוע": settling_chamber
+"ת.ב.": invert_level
+"I.L.": invert_level
+רמפה: ramp
+מפלס: level
+"קו מגרש": plot_line
+"קו בניין": building_line

@@ -1,0 +1,4 @@
+{"comment_id": "C-007", "evidence_type": "traffic_engineer_plan", "required_stage": "design_control", "professional_role": "traffic_engineer"}
+{"comment_id": "C-010", "evidence_type": "hydrologic_report", "required_stage": "design_control", "professional_role": "hydrologist"}
+{"comment_id": "C-011", "evidence_type": "asbestos_survey", "required_stage": "design_control", "professional_role": "certified_asbestos_surveyor"}
+{"comment_id": "C-012", "evidence_type": "post_construction_acoustic_measurement", "required_stage": "completion", "professional_role": "acoustic_consultant"}

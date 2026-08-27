@@ -165,7 +165,8 @@ class Orchestrator:
             result.decisions.extend(decisions)
             result.consulted |= consulted
 
-            graphs.append(build_graph(scope_plans, self.ledger.all, scope.driver))
+            scope_comments = [context.comment(cid) for cid in comment_ids]
+            graphs.append(build_graph(scope_plans, self.ledger.all, scope.driver, scope_comments))
 
             applied = {change.comment_id for change in result.changes if change.comment_id}
             comments_here = [context.comment(cid) for cid in comment_ids]

@@ -97,6 +97,28 @@ class Resolution(str, enum.Enum):
     NOT_FOUND = "not_found"
 
 
+class RequirementType(str, enum.Enum):
+    """The ten requirement classes of the Petah Tikva permit spec (§3).
+
+    Not every municipal comment is a measurable dimension: some require a
+    document, an approval from another department, a workflow gate, or are
+    only a non-binding design suggestion. This is orthogonal to whether the
+    comment carries a :class:`Requirement` - a comment can be both
+    ``GEOMETRIC`` and measurable, or ``DOCUMENT`` with no drawing test at all.
+    """
+
+    GEOMETRIC = "geometric"
+    DOCUMENT = "document"
+    EVIDENCE = "evidence"
+    APPROVAL = "approval"
+    WORKFLOW_GATE = "workflow_gate"
+    ANNOTATION = "annotation"
+    DESIGN_DECISION = "design_decision"
+    CALCULATION = "calculation"
+    INSPECTION = "inspection"
+    COMPLETION_CONDITION = "completion_condition"
+
+
 @dataclass
 class InputFile(Serialisable):
     """Input manifest entry (SKILL.md 3.2)."""
@@ -233,6 +255,9 @@ class MunicipalComment(Serialisable):
     affected_discipline: str = "architecture"
     affected_elements: list[str] = field(default_factory=list)
     required_action: str = ""
+    #: Petah Tikva spec §3 - which of the ten requirement classes this is;
+    #: ``None`` for a plain statement that carries no requirement at all.
+    requirement_type: RequirementType | None = None
     confidence: Confidence = field(default_factory=Confidence)
     source_ref: str = ""
     language: str = ""

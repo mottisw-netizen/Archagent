@@ -11,6 +11,7 @@ from archagent.drawing.json_model import JSONModelDriver  # noqa: E402
 
 EXAMPLE = ROOT / "examples" / "project"
 EXAMPLE_HE = ROOT / "examples" / "project_he"
+EXAMPLE_PETAH_TIKVA = ROOT / "examples" / "project_petah_tikva"
 
 
 def _copy(source, destination):
@@ -30,6 +31,12 @@ def project(tmp_path):
 def project_he(tmp_path):
     """A writable copy of the Hebrew example project."""
     return _copy(EXAMPLE_HE, tmp_path / "project_he")
+
+
+@pytest.fixture
+def project_petah_tikva(tmp_path):
+    """A writable copy of the Petah Tikva example project."""
+    return _copy(EXAMPLE_PETAH_TIKVA, tmp_path / "project_petah_tikva")
 
 
 @pytest.fixture

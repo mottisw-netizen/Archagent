@@ -1,0 +1,14 @@
+# Petah Tikva department -> canonical Archagent discipline (used for routing,
+# alongside the generic department table in archagent/comments.py's
+# _discipline_for). roads_drainage is the one department this profile adds
+# that the generic parser does not already know how to route.
+architecture: architecture
+traffic: traffic
+roads_drainage: civil
+environment: environment
+sanitation: sanitation
+properties: properties
+electricity_lighting: infrastructure
+forestry: landscape
+accessibility: accessibility
+fire: fire

@@ -1,0 +1,86 @@
+{
+  "project_id": "petah-tikva-demo",
+  "units": "m",
+  "north": "+y",
+  "site": {
+    "plot": {
+      "kind": "rect",
+      "x": 0.0,
+      "y": 0.0,
+      "w": 40.0,
+      "h": 30.0
+    },
+    "plot_number": "demo/1",
+    "zoning": "demo"
+  },
+  "sheets": [
+    { "id": "A-101", "name": "תוכנית קומת קרקע" },
+    { "id": "A-TR-01", "name": "תוכנית תנועה וחניה" },
+    { "id": "DR-01", "name": "תוכנית ניקוז" }
+  ],
+  "elements": [
+    {
+      "id": "building",
+      "type": "building",
+      "label": "בניין מגורים",
+      "layer": "A-BLDG",
+      "level": "Ground Floor",
+      "sheet": "A-101",
+      "geometry": { "kind": "rect", "x": 5.0, "y": 20.0, "w": 20.0, "h": 7.4 },
+      "properties": {
+        "width_axis": "x",
+        "anchor": "south_west",
+        "counts_as_floor_area": true,
+        "floor_area_factor": 6,
+        "storeys": 6
+      }
+    },
+    {
+      "id": "parking_p1",
+      "type": "parking",
+      "label": "P-1",
+      "layer": "A-PARK",
+      "level": "Ground Floor",
+      "sheet": "A-TR-01",
+      "geometry": { "kind": "rect", "x": 6.0, "y": 2.0, "w": 2.3, "h": 5.0 },
+      "properties": {
+        "width_axis": "x",
+        "anchor": "south_west",
+        "category": "resident"
+      }
+    },
+    {
+      "id": "parking_p2",
+      "type": "parking",
+      "label": "P-2",
+      "layer": "A-PARK",
+      "level": "Ground Floor",
+      "sheet": "A-TR-01",
+      "geometry": { "kind": "rect", "x": 8.5, "y": 2.0, "w": 2.5, "h": 5.0 },
+      "properties": {
+        "width_axis": "x",
+        "anchor": "south_west",
+        "approved": true,
+        "category": "resident"
+      }
+    },
+    {
+      "id": "driveway",
+      "type": "driveway",
+      "label": "משטח תמרון",
+      "layer": "A-TRAF",
+      "level": "Ground Floor",
+      "sheet": "A-TR-01",
+      "geometry": { "kind": "rect", "x": 6.0, "y": 7.5, "w": 20.0, "h": 6.0 },
+      "properties": { "width_axis": "y", "anchor": "south_west" }
+    }
+  ],
+  "schedules": {
+    "parking_table": {
+      "title": "טבלת חניה",
+      "source": { "type": "parking" },
+      "fields": { "Mark": "label", "Width": "width" },
+      "rows": []
+    }
+  }
+}
