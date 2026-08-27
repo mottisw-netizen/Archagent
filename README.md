@@ -70,6 +70,17 @@ pip install -e ".[dev]"        # or ".[web,llm,claude-code]"
 archagent-web                  # http://127.0.0.1:8000
 ```
 
+Or in Docker, with nothing else installed:
+
+```bash
+./run.sh          # Linux, macOS, WSL, Git Bash
+run.bat           # plain Windows cmd/PowerShell, no WSL needed
+```
+
+See [`DOCKER.md`](DOCKER.md) - including the one thing Docker changes: reaching
+a live Revit/AutoCAD add-in on the host machine from inside the container
+(`host.docker.internal`, not `127.0.0.1`).
+
 A Hebrew, right-to-left workspace over the same agent:
 
 - **Projects** - the bundled examples, or drag your own comments, zoning

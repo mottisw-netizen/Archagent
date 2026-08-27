@@ -1,0 +1,20 @@
+services:
+  archagent:
+    build: .
+    image: archagent:latest
+    ports:
+      - "${ARCHAGENT_PORT:-8000}:8000"
+    volumes:
+      - archagent-data:/data/projects
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    # Lets the container reach a Revit/AutoCAD add-in listening on the host
+    # machine's loopback (revit://host.docker.internal:8735) - see DOCKER.md.
+    # Docker Desktop (Windows/Mac) already provides this name; this line is
+    # what makes the same compose file work on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  archagent-data:

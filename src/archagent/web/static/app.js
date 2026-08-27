@@ -134,7 +134,8 @@ async function checkCad() {
   const status = $('#cad-status');
   if (!source) {
     status.className = 'cad-status muted';
-    status.textContent = 'ריק = המודל שבתוך הפרויקט. כתובת = המסמך הפתוח ברוויט, דרך התוסף.';
+    status.textContent = 'ריק = המודל שבתוך הפרויקט. כתובת = המסמך הפתוח ברוויט, דרך התוסף. ' +
+      'רץ בדוקר על אותו מחשב? כתבו host.docker.internal במקום 127.0.0.1.';
     return;
   }
   status.className = 'cad-status muted';
