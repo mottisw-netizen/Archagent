@@ -3,7 +3,15 @@
    computes a measurement or a status of its own. */
 
 const api = {
-  async get(path) { return handle(await fetch(path)); },
+  async get(path, params) {
+    if (params) {
+      const query = new URLSearchParams(
+        Object.entries(params).filter(([, value]) => value !== undefined && value !== null));
+      const qs = query.toString();
+      if (qs) path += (path.includes('?') ? '&' : '?') + qs;
+    }
+    return handle(await fetch(path));
+  },
   async post(path, body) {
     return handle(await fetch(path, {
       method: 'POST',
@@ -68,6 +76,9 @@ function bindControls() {
   $('#engine').addEventListener('change', updateEngineNote);
   $('#cad-check').addEventListener('click', checkCad);
   $('#cad-source').addEventListener('change', checkCad);
+  $('#edit-model-button').addEventListener('click', () => openModelEditor(state.selected));
+  $('#edit-close').addEventListener('click', () => { $('#model-editor').hidden = true; });
+  $('#edit-version').addEventListener('change', () => reloadModelEditorVersion());
   $('#tabs').addEventListener('click', (event) => {
     const button = event.target.closest('button[data-tab]');
     if (button) selectTab(button.dataset.tab);
@@ -193,6 +204,7 @@ function selectProject(projectId) {
     ? `${project.comments} הערות · ${project.files.length} קבצים · ${project.has_model ? 'מודל ניתן לעריכה' : 'ללא מודל — סימון בלבד'}`
     : '';
   $('#start-button').disabled = !project;
+  $('#edit-model-button').disabled = !project || !project.has_model;
   document.querySelectorAll('#project-list button').forEach((button) => {
     button.setAttribute('aria-pressed',
       String(button.querySelector('strong').textContent === (project && project.name)));
@@ -957,6 +969,233 @@ class PlanViewer {
         ctx.fill();
       }
     });
+  }
+}
+
+/* --------------------------------------------------------- model editor
+   Direct move/resize/delete on a project's own model - a second, parallel
+   control surface onto the same DrawingDriver primitives the comment-driven
+   pipeline already uses (archagent.manual_edit), not a second editing
+   engine. Every edit still creates a new immutable version on the server;
+   nothing here mutates anything in place. Reuses PlanViewer's canvas
+   transform math but keeps its own, simpler details panel (move/delete
+   controls instead of comment/change references), so PlanViewer itself -
+   already tested against real runs - is never touched. */
+class ModelEditor {
+  constructor(canvas, detailsEl, projectId, version, model) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.detailsEl = detailsEl;
+    this.projectId = projectId;
+    this.version = version;
+    this.model = model;
+    this.scale = 1;
+    this.offset = { x: 0, y: 0 };
+    this.selected = null;
+    this.dragging = null;
+    this._bindEvents();
+    this._resizeObserver = new ResizeObserver(() => this._draw());
+    this._resizeObserver.observe(canvas.parentElement);
+    this.resetView();
+  }
+
+  destroy() {
+    this._resizeObserver.disconnect();
+  }
+
+  setModel(version, model) {
+    this.version = version;
+    this.model = model;
+    this.selected = null;
+    this._renderDetails(null);
+    this.resetView();
+  }
+
+  elements() {
+    return this.model.elements || [];
+  }
+
+  resetView() {
+    const elements = this.elements();
+    const box = elements.reduce((acc, element) => {
+      const g = element.geometry || {};
+      const x0 = g.x ?? 0, y0 = g.y ?? 0, x1 = x0 + (g.w ?? 0), y1 = y0 + (g.h ?? 0);
+      return {
+        minX: Math.min(acc.minX, x0), minY: Math.min(acc.minY, y0),
+        maxX: Math.max(acc.maxX, x1), maxY: Math.max(acc.maxY, y1),
+      };
+    }, { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+    if (!isFinite(box.minX)) { box.minX = 0; box.minY = 0; box.maxX = 10; box.maxY = 10; }
+    const width = Math.max(box.maxX - box.minX, 1);
+    const height = Math.max(box.maxY - box.minY, 1);
+    const rect = this.canvas.parentElement.getBoundingClientRect();
+    const padding = 40;
+    this.scale = Math.max(Math.min(
+      (rect.width - padding * 2) / width, (rect.height - padding * 2) / height), 0.001);
+    this.extentMaxY = box.maxY;
+    this.offset = {
+      x: (rect.width - width * this.scale) / 2 - box.minX * this.scale,
+      y: (rect.height - height * this.scale) / 2,
+    };
+    this._draw();
+  }
+
+  _toScreen(x, y) {
+    return { x: this.offset.x + x * this.scale, y: this.offset.y + (this.extentMaxY - y) * this.scale };
+  }
+
+  _toWorld(sx, sy) {
+    return { x: (sx - this.offset.x) / this.scale, y: this.extentMaxY - (sy - this.offset.y) / this.scale };
+  }
+
+  _bindEvents() {
+    this.canvas.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      const rect = this.canvas.getBoundingClientRect();
+      const cursor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const before = this._toWorld(cursor.x, cursor.y);
+      this.scale *= event.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const after = this._toScreen(before.x, before.y);
+      this.offset.x += cursor.x - after.x;
+      this.offset.y += cursor.y - after.y;
+      this._draw();
+    }, { passive: false });
+    this.canvas.addEventListener('pointerdown', (event) => {
+      this.dragging = { x: event.clientX, y: event.clientY, moved: false };
+      this.canvas.setPointerCapture(event.pointerId);
+    });
+    this.canvas.addEventListener('pointermove', (event) => {
+      if (!this.dragging) return;
+      const dx = event.clientX - this.dragging.x, dy = event.clientY - this.dragging.y;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) this.dragging.moved = true;
+      this.offset.x += dx; this.offset.y += dy;
+      this.dragging.x = event.clientX; this.dragging.y = event.clientY;
+      this._draw();
+    });
+    this.canvas.addEventListener('pointerup', (event) => {
+      if (this.dragging && !this.dragging.moved) this._click(event);
+      this.dragging = null;
+    });
+  }
+
+  _click(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    const point = this._toWorld(event.clientX - rect.left, event.clientY - rect.top);
+    const hit = this.elements().find((element) => {
+      const g = element.geometry || {};
+      return point.x >= (g.x ?? 0) && point.x <= (g.x ?? 0) + (g.w ?? 0) &&
+             point.y >= (g.y ?? 0) && point.y <= (g.y ?? 0) + (g.h ?? 0);
+    });
+    this.selected = hit || null;
+    this._renderDetails(hit);
+    this._draw();
+  }
+
+  async _edit(action, params) {
+    if (!this.selected) return;
+    try {
+      const body = await api.post(`/api/projects/${this.projectId}/edit`, {
+        base_version: this.version, action, element_id: this.selected.id, ...params,
+      });
+      await refreshModelEditorVersions(this.projectId, body.version);
+      this.setModel(body.version, body.model);
+      toast(`נשמר כגרסה ${body.version}`);
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  _renderDetails(element) {
+    this.detailsEl.innerHTML = '';
+    if (!element) {
+      this.detailsEl.append(el('p', 'empty', 'לחצו על אלמנט לעריכה'));
+      return;
+    }
+    this.detailsEl.append(el('h3', null, element.label || element.id));
+    this.detailsEl.append(el('p', 'muted small', `${element.type} · ${element.id}`));
+
+    const step = () => parseFloat($('#edit-step').value || '0.5');
+    const moveRow = el('div', 'edit-move-grid');
+    const arrow = (label, direction) => {
+      const button = el('button', 'ghost', label);
+      button.type = 'button';
+      button.addEventListener('click', () => this._edit('move', { distance: step(), direction }));
+      return button;
+    };
+    moveRow.append(arrow('↑ צפון', 'north'), arrow('↓ דרום', 'south'),
+      arrow('→ מזרח', 'east'), arrow('← מערב', 'west'));
+    this.detailsEl.append(el('p', 'k', 'הזזה'));
+    this.detailsEl.append(moveRow);
+
+    const deleteBtn = el('button', 'ghost danger', 'מחיקת אלמנט');
+    deleteBtn.type = 'button';
+    deleteBtn.addEventListener('click', () => {
+      if (confirm(`למחוק את ${element.label || element.id}? הגרסה הקודמת תישאר שמורה.`)) {
+        this._edit('delete', {});
+      }
+    });
+    this.detailsEl.append(deleteBtn);
+  }
+
+  _draw() {
+    const { ctx, canvas } = this;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    canvas.width = rect.width; canvas.height = rect.height;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    this.elements().forEach((element) => {
+      const g = element.geometry;
+      if (!g || g.kind !== 'rect') return;
+      const topLeft = this._toScreen(g.x, g.y + (g.h ?? 0));
+      const w = (g.w ?? 0) * this.scale, h = (g.h ?? 0) * this.scale;
+      ctx.fillStyle = CATEGORY_COLOUR[element.type] || CATEGORY_COLOUR.generic;
+      ctx.globalAlpha = 0.55;
+      ctx.fillRect(topLeft.x, topLeft.y, w, h);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = this.selected && this.selected.id === element.id ? '#e0a02b' : '#3a3f4b';
+      ctx.lineWidth = this.selected && this.selected.id === element.id ? 2.5 : 1;
+      ctx.strokeRect(topLeft.x, topLeft.y, w, h);
+    });
+  }
+}
+
+async function openModelEditor(projectId) {
+  if (!projectId) return;
+  try {
+    const versions = await refreshModelEditorVersions(projectId);
+    const latest = versions[versions.length - 1];
+    const { model } = await api.get(`/api/projects/${projectId}/model`,
+      { version: latest === 'original' ? undefined : latest });
+    $('#model-editor').hidden = false;
+    const canvas = $('#edit-canvas');
+    if (state.modelEditor) state.modelEditor.destroy();
+    state.modelEditor = new ModelEditor(canvas, $('#edit-details'), projectId, latest, model);
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function refreshModelEditorVersions(projectId, select) {
+  const { versions } = await api.get(`/api/projects/${projectId}/versions`);
+  const list = $('#edit-version');
+  list.innerHTML = '';
+  versions.forEach((version) => {
+    const option = document.createElement('option');
+    option.value = version; option.textContent = version;
+    list.append(option);
+  });
+  list.value = select || versions[versions.length - 1];
+  return versions;
+}
+
+async function reloadModelEditorVersion() {
+  if (!state.modelEditor) return;
+  const version = $('#edit-version').value;
+  try {
+    const { model } = await api.get(`/api/projects/${state.modelEditor.projectId}/model`,
+      { version: version === 'original' ? undefined : version });
+    state.modelEditor.setModel(version, model);
+  } catch (error) {
+    toast(error.message, true);
   }
 }
 

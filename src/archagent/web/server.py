@@ -25,6 +25,8 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..adapters import SourceRef, default_registry
 from ..llm import client as llm_client
+from ..manual_edit import ManualEditError, apply_manual_edit, load_driver_for_edit
+from ..versioning import VersionStore
 from .engines import ClaudeCodeEngine, build_engine
 from .projects import ProjectStore
 from .runs import RunManager
@@ -146,6 +148,55 @@ def delete_project(project_id: str) -> dict:
     except PermissionError as error:
         raise HTTPException(403, str(error))
     return {"ok": True}
+
+
+# ----------------------------------------------------------------------
+# manual editing - direct move/resize/delete outside the comment pipeline
+# (archagent.manual_edit); the JSON-model-backed projects this app already
+# works with, not a live Revit/AutoCAD session (SKILL.md §12.3).
+# ----------------------------------------------------------------------
+@app.get("/api/projects/{project_id}/versions")
+def list_project_versions(project_id: str) -> dict:
+    try:
+        project_dir = projects.directory(project_id)
+    except KeyError:
+        raise HTTPException(404, "no such project")
+    return {"versions": ["original"] + VersionStore(project_dir / "versions").versions()}
+
+
+@app.get("/api/projects/{project_id}/model")
+def get_project_model(project_id: str, version: str | None = None) -> dict:
+    try:
+        project_dir = projects.directory(project_id)
+    except KeyError:
+        raise HTTPException(404, "no such project")
+    try:
+        driver, resolved_version, _versions = load_driver_for_edit(project_dir, version)
+    except ManualEditError as error:
+        raise HTTPException(404, str(error))
+    return {"version": resolved_version, "model": driver.plan_model()}
+
+
+@app.post("/api/projects/{project_id}/edit")
+async def edit_project_model(project_id: str, request: Request) -> dict:
+    try:
+        project_dir = projects.directory(project_id)
+    except KeyError:
+        raise HTTPException(404, "no such project")
+    body = await request.json()
+    action = body.get("action")
+    element_id = body.get("element_id")
+    if not action or not element_id:
+        raise HTTPException(400, "action and element_id are required")
+    params = {key: value for key, value in body.items()
+             if key not in ("base_version", "action", "element_id")}
+    try:
+        driver, base_version, versions = load_driver_for_edit(project_dir, body.get("base_version"))
+        result = apply_manual_edit(versions, driver, base_version, action, element_id, **params)
+    except ManualEditError as error:
+        raise HTTPException(400, str(error))
+    return {"version": result.version, "parent_version": result.parent_version,
+            "change": result.change.to_dict(), "model": result.model}
 
 
 # ----------------------------------------------------------------------

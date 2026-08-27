@@ -74,10 +74,38 @@
           <h1 id="launch-title">בחרו פרויקט להרצה</h1>
           <p class="muted" id="launch-subtitle">הסוכן קורא את ההערות, מאתר את האלמנטים, מתקן ומודד.</p>
         </div>
-        <button id="start-button" class="primary" type="button" disabled>
-          <span class="spinner" hidden></span><span class="label">התחלת בדיקה</span>
-        </button>
+        <div class="launch-actions">
+          <button id="edit-model-button" class="ghost" type="button" disabled>עריכת מודל</button>
+          <button id="start-button" class="primary" type="button" disabled>
+            <span class="spinner" hidden></span><span class="label">התחלת בדיקה</span>
+          </button>
+        </div>
       </div>
+
+      <section class="panel" id="model-editor" hidden>
+        <div class="viewer-toolbar">
+          <label class="field">
+            <span>גרסה</span>
+            <select id="edit-version"></select>
+          </label>
+          <label class="field">
+            <span>צעד הזזה</span>
+            <select id="edit-step">
+              <option value="0.1">0.10 מ'</option>
+              <option value="0.5" selected>0.50 מ'</option>
+              <option value="1">1.00 מ'</option>
+            </select>
+          </label>
+          <button id="edit-close" class="ghost" type="button">סגירה</button>
+          <span class="muted small viewer-hint">גלגלת = זום · גרירה = הזזה · קליק = בחירת אלמנט</span>
+        </div>
+        <div class="viewer-layout">
+          <div class="viewer-stage"><canvas id="edit-canvas"></canvas></div>
+          <div class="viewer-details" id="edit-details">
+            <p class="empty">לחצו על אלמנט לעריכה</p>
+          </div>
+        </div>
+      </section>
 
       <div class="controls">
         <label class="field">

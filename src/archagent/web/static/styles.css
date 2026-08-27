@@ -274,6 +274,11 @@ button.ghost {
   padding: .45rem .85rem; transition: all .15s var(--ease);
 }
 button.ghost:hover { color: var(--ink); border-color: var(--accent); background: var(--accent-soft); }
+button.ghost.danger { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 45%, transparent); }
+button.ghost.danger:hover { background: color-mix(in srgb, var(--critical) 12%, transparent); border-color: var(--critical); }
+
+.launch-actions { display: flex; gap: .6rem; align-items: center; }
+.edit-move-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem; margin-block-end: .8rem; }
 
 .spinner {
   width: 14px; height: 14px; border-radius: 50%;
