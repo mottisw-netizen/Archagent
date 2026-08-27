@@ -88,8 +88,15 @@ A Hebrew, right-to-left workspace over the same agent:
 - **Results** - KPI tiles, a status bar in the reserved status palette (every
   segment labelled - colour never carries the meaning alone), per-comment cards
   with the measured evidence and a confidence meter against the threshold, the
-  constraint table, the before/after slider, the full report, and every
+  constraint table, an interactive plan viewer, the full report, and every
   artefact for download.
+- **A live plan, not a picture of one.** The "before/after" tab is a pannable,
+  zoomable `<canvas>` reading the run's own `before_model.json`/`after_model.json`
+  - wheel to zoom, drag to pan, click any element for its before/after values
+  and which comment demanded them. Changed elements carry a dashed accent
+  outline and a small badge; a toggle swaps the whole view between the two
+  versions. No plugin, no native viewer - it runs in any browser, which is the
+  point for a reviewer on Linux with nothing else installed.
 
 ### Two engines behind the same screen
 

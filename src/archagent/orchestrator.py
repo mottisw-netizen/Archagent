@@ -691,6 +691,16 @@ class Orchestrator:
             sources=sources, baseline=baseline, messages=self.m)
         files["change_set"] = str(changeset.write(self.output_dir, result.change_set))
         self._highlight(result.change_set["highlight_by_source"], scopes or [])
+        # The raw model, before and after - what an interactive viewer draws
+        # from. The rendered SVGs above are a picture of this; this is the
+        # data itself, for a client that wants to pan, zoom and click rather
+        # than look at a fixed image.
+        before_path = self.output_dir / "before_model.json"
+        before_path.write_text(json.dumps(before_model, ensure_ascii=False) + "\n", encoding="utf-8")
+        files["before_model"] = str(before_path)
+        after_path = self.output_dir / "after_model.json"
+        after_path.write_text(json.dumps(after_model, ensure_ascii=False) + "\n", encoding="utf-8")
+        files["after_model"] = str(after_path)
         context_path = self.output_dir / "project_context.json"
         context_path.write_text(context.to_json() + "\n", encoding="utf-8")
         files["project_context"] = str(context_path)

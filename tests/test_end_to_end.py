@@ -72,12 +72,25 @@ def test_autonomous_mode_still_applies_the_safe_corrections(project):
 def test_artefacts_are_generated(project):
     result = _run(project, answers={"C-005": "approve"})
     for name in ("comparison", "change_map", "highlighted", "validation_report",
-                 "dependency_graph", "correction_report", "project_context"):
+                 "dependency_graph", "correction_report", "project_context",
+                 "before_model", "after_model"):
         assert Path(result.files[name]).exists(), name
     change_map = json.loads(Path(result.files["change_map"]).read_text())
     assert any(entry["comments"] for entry in change_map["entries"])
     html = Path(result.files["comparison"]).read_text()
     assert "slider" in html and "parking_p12" in html
+
+
+def test_before_and_after_models_are_the_raw_data_a_viewer_draws_from(project):
+    """Not a picture of the model - the model, for a client that wants to
+    pan/zoom/click rather than look at a fixed SVG."""
+    result = _run(project, answers={"C-005": "approve"})
+    before = json.loads(Path(result.files["before_model"]).read_text())
+    after = json.loads(Path(result.files["after_model"]).read_text())
+    before_p12 = next(e for e in before["elements"] if e["id"] == "parking_p12")
+    after_p12 = next(e for e in after["elements"] if e["id"] == "parking_p12")
+    assert before_p12["geometry"]["w"] == 2.4
+    assert after_p12["geometry"]["w"] == 2.5
     svg = Path(result.files["highlighted"]).read_text()
     assert svg.startswith("<svg") and "C-001" in svg  # colour plus a text tag
 

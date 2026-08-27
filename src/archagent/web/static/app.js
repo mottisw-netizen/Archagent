@@ -636,15 +636,324 @@ function renderConstraints(result) {
 function renderDrawing(result) {
   const panel = $('#panel-drawing');
   panel.innerHTML = '';
-  if (!result.files.comparison) {
-    panel.append(el('p', 'empty', 'לא הופקה תצוגת לפני/אחרי'));
+  state.viewer = null;
+  // A stream of run events can call this more than once for the same
+  // completed run (an initial fetch, then the replayed terminal SSE event);
+  // each async build below checks this token so a superseded call cannot
+  // append its canvas after a newer one already has.
+  const token = (state.drawingRenderToken = (state.drawingRenderToken || 0) + 1);
+  if (!result.files.after_model) {
+    // A run with no editable model (markup-only, or an older run payload)
+    // still has the rendered comparison, if anything was previewed at all.
+    if (result.files.comparison) {
+      const frame = document.createElement('iframe');
+      frame.className = 'drawing-frame';
+      frame.src = `/api/runs/${state.run.run_id}/file?name=comparison`;
+      frame.title = 'לפני / אחרי';
+      panel.append(frame);
+    } else {
+      panel.append(el('p', 'empty', 'לא הופקה תצוגת לפני/אחרי'));
+    }
     return;
   }
-  const frame = document.createElement('iframe');
-  frame.className = 'drawing-frame';
-  frame.src = `/api/runs/${state.run.run_id}/file?name=comparison`;
-  frame.title = 'לפני / אחרי';
-  panel.append(frame);
+  buildInteractiveViewer(panel, result, token).catch((error) => {
+    if (token === state.drawingRenderToken) panel.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
+  });
+}
+
+async function buildInteractiveViewer(panel, result, token) {
+  const runId = state.run.run_id;
+  const [before, after] = await Promise.all([
+    api.get(`/api/runs/${runId}/file?name=before_model`),
+    api.get(`/api/runs/${runId}/file?name=after_model`),
+  ]);
+  const changeSet = result.files.change_set
+    ? await api.get(`/api/runs/${runId}/file?name=change_set`) : null;
+
+  const wrap = el('div', 'viewer');
+  const toolbar = el('div', 'viewer-toolbar');
+  const toggle = el('div', 'viewer-toggle');
+  const beforeBtn = el('button', null, 'לפני');
+  const afterBtn = el('button', 'active', 'אחרי');
+  beforeBtn.type = 'button';
+  afterBtn.type = 'button';
+  toggle.append(beforeBtn, afterBtn);
+  const resetBtn = el('button', 'ghost', 'איפוס תצוגה');
+  resetBtn.type = 'button';
+  toolbar.append(toggle, resetBtn,
+    el('span', 'muted small viewer-hint', 'גלגלת = זום · גרירה = הזזה · קליק = פרטים'));
+
+  const layout = el('div', 'viewer-layout');
+  const stage = el('div', 'viewer-stage');
+  const canvas = document.createElement('canvas');
+  stage.append(canvas);
+  const details = el('div', 'viewer-details');
+  details.append(el('p', 'empty', 'לחצו על אלמנט לפרטים'));
+  layout.append(stage, details);
+
+  if (token !== state.drawingRenderToken) return;   // a newer render has since started
+  wrap.append(toolbar, layout);
+  panel.append(wrap);
+
+  const viewer = new PlanViewer(canvas, details, { before, after, changeSet, result });
+  state.viewer = viewer;
+  resetBtn.addEventListener('click', () => viewer.resetView());
+  beforeBtn.addEventListener('click', () => {
+    viewer.show('before');
+    beforeBtn.classList.add('active');
+    afterBtn.classList.remove('active');
+  });
+  afterBtn.addEventListener('click', () => {
+    viewer.show('after');
+    afterBtn.classList.add('active');
+    beforeBtn.classList.remove('active');
+  });
+}
+
+/* ------------------------------------------------------------- plan viewer
+   A pannable, zoomable canvas over the raw model - not a picture of it. Every
+   number it shows (a dimension, a before/after value, which comment caused a
+   change) is read from the same run payload the rest of the page uses;
+   nothing here measures or infers anything of its own. */
+function _formatChangeValue(value) {
+  if (value && typeof value === 'object') {
+    if ('x' in value && 'y' in value && 'w' in value && 'h' in value) {
+      return `(${value.x}, ${value.y}, ${value.w}, ${value.h})`;
+    }
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+const CATEGORY_COLOUR = {
+  building: '#7c8ba1', wall: '#8f8f8f', parking: '#5b9bf2', driveway: '#c9a24b',
+  room: '#7fb0e0', door: '#b88a4a', window: '#7ec8c8', stair: '#a56bd6',
+  railing: '#9a9a9a', floor: '#8f8f8f', roof: '#8b6b4a', column: '#6f6f6f',
+  sidewalk: '#b8b09a', site: 'transparent', dimension: '#a8a8a8', text: '#a8a8a8',
+  generic: '#909090',
+};
+
+class PlanViewer {
+  constructor(canvas, detailsEl, data) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext('2d');
+    this.detailsEl = detailsEl;
+    this.models = { before: data.before, after: data.after };
+    this.changeSet = data.changeSet;
+    this.result = data.result;
+    this.which = 'after';
+    this.changedIds = new Set(this.changeSet ? this.changeSet.highlight || [] : []);
+    this.elementsByComment = this._indexByComment();
+    this.scale = 1;
+    this.offset = { x: 0, y: 0 };
+    this.selected = null;
+    this.dragging = null;
+
+    this._bindEvents();
+    this._resizeObserver = new ResizeObserver(() => this._draw());
+    this._resizeObserver.observe(canvas.parentElement);
+    this.resetView();
+  }
+
+  _indexByComment() {
+    const map = new Map();
+    if (!this.changeSet) return map;
+    (this.changeSet.by_comment || []).forEach((entry) => {
+      entry.elements.forEach((id) => {
+        if (!map.has(id)) map.set(id, []);
+        map.get(id).push(entry);
+      });
+    });
+    return map;
+  }
+
+  show(which) {
+    this.which = which;
+    this.selected = null;
+    this._renderDetails(null);
+    this._draw();
+  }
+
+  elements() {
+    return (this.models[this.which] || {}).elements || [];
+  }
+
+  resetView() {
+    const elements = this.elements();
+    const box = elements.reduce((acc, element) => {
+      const g = element.geometry || {};
+      const x0 = g.x ?? 0, y0 = g.y ?? 0, x1 = x0 + (g.w ?? 0), y1 = y0 + (g.h ?? 0);
+      return {
+        minX: Math.min(acc.minX, x0), minY: Math.min(acc.minY, y0),
+        maxX: Math.max(acc.maxX, x1), maxY: Math.max(acc.maxY, y1),
+      };
+    }, { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
+    if (!isFinite(box.minX)) { box.minX = 0; box.minY = 0; box.maxX = 10; box.maxY = 10; }
+    const width = Math.max(box.maxX - box.minX, 1);
+    const height = Math.max(box.maxY - box.minY, 1);
+    const rect = this.canvas.parentElement.getBoundingClientRect();
+    const padding = 40;
+    this.scale = Math.max(Math.min(
+      (rect.width - padding * 2) / width, (rect.height - padding * 2) / height), 0.001);
+    // Screen y flips plan y (north is up in the model, down on screen); the
+    // flip pivots on the plan's north edge, so the offset is measured from
+    // there rather than from the origin.
+    this.extentMaxY = box.maxY;
+    this.offset = {
+      x: (rect.width - width * this.scale) / 2 - box.minX * this.scale,
+      y: (rect.height - height * this.scale) / 2,
+    };
+    this._draw();
+  }
+
+  _toScreen(x, y) {
+    return { x: this.offset.x + x * this.scale, y: this.offset.y + (this.extentMaxY - y) * this.scale };
+  }
+
+  _toWorld(sx, sy) {
+    return { x: (sx - this.offset.x) / this.scale, y: this.extentMaxY - (sy - this.offset.y) / this.scale };
+  }
+
+  _bindEvents() {
+    this.canvas.addEventListener('wheel', (event) => {
+      event.preventDefault();
+      const rect = this.canvas.getBoundingClientRect();
+      const cursor = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const before = this._toWorld(cursor.x, cursor.y);
+      this.scale *= event.deltaY < 0 ? 1.12 : 1 / 1.12;
+      const after = this._toScreen(before.x, before.y);
+      this.offset.x += cursor.x - after.x;
+      this.offset.y += cursor.y - after.y;
+      this._draw();
+    }, { passive: false });
+
+    this.canvas.addEventListener('pointerdown', (event) => {
+      this.dragging = { x: event.clientX, y: event.clientY, moved: false };
+      this.canvas.setPointerCapture(event.pointerId);
+    });
+    this.canvas.addEventListener('pointermove', (event) => {
+      if (!this.dragging) return;
+      const dx = event.clientX - this.dragging.x, dy = event.clientY - this.dragging.y;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) this.dragging.moved = true;
+      this.offset.x += dx; this.offset.y += dy;
+      this.dragging.x = event.clientX; this.dragging.y = event.clientY;
+      this._draw();
+    });
+    this.canvas.addEventListener('pointerup', (event) => {
+      if (this.dragging && !this.dragging.moved) this._click(event);
+      this.dragging = null;
+    });
+  }
+
+  _click(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    const point = this._toWorld(event.clientX - rect.left, event.clientY - rect.top);
+    const hit = this.elements().find((element) => {
+      const g = element.geometry || {};
+      return point.x >= (g.x ?? 0) && point.x <= (g.x ?? 0) + (g.w ?? 0) &&
+             point.y >= (g.y ?? 0) && point.y <= (g.y ?? 0) + (g.h ?? 0);
+    });
+    this.selected = hit || null;
+    this._renderDetails(hit);
+    this._draw();
+  }
+
+  _renderDetails(element) {
+    this.detailsEl.innerHTML = '';
+    if (!element) {
+      this.detailsEl.append(el('p', 'empty', 'לחצו על אלמנט לפרטים'));
+      return;
+    }
+    this.detailsEl.append(el('h3', null, element.label || element.id));
+    this.detailsEl.append(el('p', 'muted small', `${element.type} · ${element.id}`));
+    const geometryChange = (this.changeSet?.elements || []).find((e) => e.element_id === element.id);
+    if (geometryChange) {
+      const list = el('div', 'viewer-changes');
+      geometryChange.properties.forEach((change) => {
+        const row = el('div', 'change');
+        row.innerHTML = `${escapeHtml(change.property)}: ` +
+          `<span class="ltr">${escapeHtml(_formatChangeValue(change.before))}</span>` +
+          `<span class="arrow">→</span><span class="ltr">${escapeHtml(_formatChangeValue(change.after))}</span>`;
+        list.append(row);
+      });
+      this.detailsEl.append(el('h3', null, 'שינויים'), list);
+    }
+    const comments = this.elementsByComment.get(element.id) || [];
+    if (comments.length) {
+      const list = el('ul');
+      comments.forEach((entry) => {
+        const item = document.createElement('li');
+        item.innerHTML = `<span class="comment-id">${escapeHtml(entry.comment_id)}</span> ` +
+          `${escapeHtml(entry.status_label || entry.status)} — ${escapeHtml(entry.summary || '')}`;
+        list.append(item);
+      });
+      this.detailsEl.append(el('h3', null, 'הערות'), list);
+    }
+    const props = Object.entries(element.properties || {})
+      .filter(([key]) => !['width_axis', 'layer'].includes(key));
+    if (props.length) {
+      const list = el('div', 'viewer-changes');
+      props.forEach(([key, value]) => {
+        const row = el('div', 'change');
+        row.textContent = `${key}: ${value}`;
+        list.append(row);
+      });
+      this.detailsEl.append(el('h3', null, 'מאפיינים'), list);
+    }
+  }
+
+  _draw() {
+    const canvas = this.canvas;
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const ratio = window.devicePixelRatio || 1;
+    if (canvas.width !== rect.width * ratio || canvas.height !== rect.height * ratio) {
+      canvas.width = rect.width * ratio;
+      canvas.height = rect.height * ratio;
+      canvas.style.width = `${rect.width}px`;
+      canvas.style.height = `${rect.height}px`;
+    }
+    const ctx = this.ctx;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    const styles = getComputedStyle(document.documentElement);
+    const surface = styles.getPropertyValue('--surface-2').trim() || '#ffffff';
+    const ink = styles.getPropertyValue('--ink').trim() || '#111111';
+    ctx.fillStyle = surface;
+    ctx.fillRect(0, 0, rect.width, rect.height);
+
+    this.elements().forEach((element) => {
+      const g = element.geometry || {};
+      const topLeft = this._toScreen(g.x ?? 0, (g.y ?? 0) + (g.h ?? 0));
+      const w = (g.w ?? 0) * this.scale;
+      const h = (g.h ?? 0) * this.scale;
+      const changed = this.changedIds.has(element.id);
+      const selected = this.selected && this.selected.id === element.id;
+
+      ctx.fillStyle = CATEGORY_COLOUR[element.type] || CATEGORY_COLOUR.generic;
+      ctx.globalAlpha = element.type === 'site' ? 0 : 0.55;
+      ctx.fillRect(topLeft.x, topLeft.y, w, h);
+      ctx.globalAlpha = 1;
+
+      ctx.strokeStyle = selected ? '#5b9bf2' : (changed ? '#a58bff' : 'rgba(120,120,120,.7)');
+      ctx.lineWidth = selected ? 2.5 : (changed ? 2 : 1);
+      if (changed && !selected) ctx.setLineDash([5, 3]); else ctx.setLineDash([]);
+      ctx.strokeRect(topLeft.x, topLeft.y, w, h);
+      ctx.setLineDash([]);
+
+      if (w > 28 && h > 14 && element.label) {
+        ctx.fillStyle = ink;
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(element.label, topLeft.x + w / 2, topLeft.y + h / 2);
+      }
+      if (changed) {
+        ctx.fillStyle = '#a58bff';
+        ctx.beginPath();
+        ctx.arc(topLeft.x + w - 5, topLeft.y + 5, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  }
 }
 
 async function renderReport() {
@@ -686,6 +995,10 @@ function selectTab(tab) {
     button.classList.toggle('active', button.dataset.tab === tab));
   document.querySelectorAll('.tab-panels > div').forEach((panel) =>
     (panel.hidden = panel.dataset.panel !== tab));
+  // The canvas was sized while its tab was hidden (0×0); a resize observer
+  // does not reliably fire across that display:none -> visible transition,
+  // so the viewer re-measures itself explicitly the moment it is shown.
+  if (tab === 'drawing' && state.viewer) state.viewer.resetView();
 }
 
 function table(headers, rows) {
