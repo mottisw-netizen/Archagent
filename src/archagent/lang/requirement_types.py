@@ -43,7 +43,7 @@ _PATTERNS: dict[str, list[tuple[RequirementType, str]]] = {
         (RequirementType.EVIDENCE,
          r"אסמכת[הא]|הוכח[הת]|ראי[הת]"),
         (RequirementType.GEOMETRIC,
-         r"שיפוע|רדיוס(?:ים)?|מפלס|לתכנן|לסמן|קו\s*(?:ה)?בניי?ן|מרחק|קו\s*תיעול"),
+         r"שיפוע|רדיוס(?:ים)?|מפלס|לתכנן|לסמן|קו\s*(?:ה)?בניי?ן|מרחק|מרווח|קו\s*תיעול"),
     ],
     "en": [
         (RequirementType.COMPLETION_CONDITION,
