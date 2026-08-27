@@ -176,3 +176,45 @@ class LifecycleTracker:
         requirement = self.requirements.get(requirement_id)
         if requirement is not None:
             requirement.status = LifecycleState.RESOLVED
+
+
+class WorkflowStatus(str, enum.Enum):
+    """A requirement's standing against the project's current permit stage.
+
+    Update-instruction §5/§18: never demand evidence before its stage is
+    reached, and never let an open requirement whose ``blocking_stage`` has
+    already passed go unnoticed - that is exactly the "declared complete too
+    early" failure mode.
+    """
+
+    NOT_APPLICABLE = "not_applicable"
+    NOT_YET_DUE = "not_yet_due"
+    DUE = "due"
+    OVERDUE = "overdue"
+
+
+def workflow_status(requirement: RequirementLifecycle, current_stage: PermitStage) -> WorkflowStatus:
+    if not requirement.is_open:
+        return WorkflowStatus.NOT_APPLICABLE
+    if requirement.blocking_stage is not None and current_stage.at_or_after(requirement.blocking_stage):
+        return WorkflowStatus.OVERDUE
+    if requirement.required_stage is None:
+        return WorkflowStatus.NOT_APPLICABLE
+    if current_stage.at_or_after(requirement.required_stage):
+        return WorkflowStatus.DUE
+    return WorkflowStatus.NOT_YET_DUE
+
+
+def workflow_summary(requirements: list[RequirementLifecycle],
+                     current_stage: PermitStage) -> dict[WorkflowStatus, list[str]]:
+    """Group requirement ids by workflow status, for a report or a gate."""
+    groups: dict[WorkflowStatus, list[str]] = {status: [] for status in WorkflowStatus}
+    for requirement in requirements:
+        groups[workflow_status(requirement, current_stage)].append(requirement.requirement_id)
+    return groups
+
+
+def blocking_requirements(requirements: list[RequirementLifecycle],
+                         current_stage: PermitStage) -> list[RequirementLifecycle]:
+    """Open requirements whose blocking stage the project has already reached."""
+    return [r for r in requirements if workflow_status(r, current_stage) is WorkflowStatus.OVERDUE]

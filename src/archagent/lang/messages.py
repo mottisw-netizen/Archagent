@@ -231,6 +231,11 @@ ENGLISH: dict[str, str] = {
     "department.Landscaping": "Landscaping", "department.Environment": "Environment",
     "department.Infrastructure": "Infrastructure", "department.Engineering": "Engineering",
     "department.Unknown": "Unknown",
+    "reqtype.geometric": "Geometric", "reqtype.document": "Document",
+    "reqtype.evidence": "Evidence", "reqtype.approval": "Approval",
+    "reqtype.workflow_gate": "Workflow gate", "reqtype.annotation": "Annotation",
+    "reqtype.design_decision": "Design decision", "reqtype.calculation": "Calculation",
+    "reqtype.inspection": "Inspection", "reqtype.completion_condition": "Completion condition",
     "mode.consultation": "consultation", "mode.autonomous": "autonomous",
     "exec.applied": "applied", "exec.markup_only": "markup only",
     "result.passed": "passed", "result.passed_with_open_items": "passed with open items",
@@ -462,6 +467,11 @@ HEBREW: dict[str, str] = {
     "department.Landscaping": "גינון", "department.Environment": "איכות הסביבה",
     "department.Infrastructure": "תשתיות", "department.Engineering": "הנדסה",
     "department.Unknown": "לא ידוע",
+    "reqtype.geometric": "גאומטרי", "reqtype.document": "מסמך",
+    "reqtype.evidence": "ראיה", "reqtype.approval": "אישור",
+    "reqtype.workflow_gate": "שער תהליך", "reqtype.annotation": "סימון בלבד",
+    "reqtype.design_decision": "החלטה תכנונית", "reqtype.calculation": "חישוב",
+    "reqtype.inspection": "בדיקה בשטח", "reqtype.completion_condition": "תנאי לגמר",
     "mode.consultation": "התייעצות", "mode.autonomous": "אוטונומי",
     "exec.applied": "בוצע במודל", "exec.markup_only": "סימון בלבד",
     "result.passed": "עבר", "result.passed_with_open_items": "עבר עם פריטים פתוחים",
@@ -572,6 +582,12 @@ class Messages:
 
     def department(self, department: str) -> str:
         return self.t(f"department.{department}")
+
+    def requirement_type(self, requirement_type) -> str:
+        if requirement_type is None:
+            return ""
+        value = getattr(requirement_type, "value", str(requirement_type))
+        return self.t(f"reqtype.{value}")
 
     def mode(self, mode: str) -> str:
         return self.t(f"mode.{mode}")

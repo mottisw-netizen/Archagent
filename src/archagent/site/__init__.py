@@ -18,11 +18,12 @@ from .drainage import (
 from .elevations import ElevationGraph, ElevationPoint, SlopeResult
 from .surfaces import Surface
 from .topology import SiteElement, SiteRelation, SiteTopology
+from .trees import Tree, validate_preservation_radius
 
 __all__ = [
     "DrainageEdge", "DrainageNetwork", "DrainageNode", "ElevationGraph",
     "ElevationPoint", "SiteElement", "SiteRelation", "SiteTopology", "SlopeResult",
-    "Surface", "validate_capacity_evidence", "validate_coverage",
+    "Surface", "Tree", "validate_capacity_evidence", "validate_coverage",
     "validate_elevation_consistency", "validate_flow_direction",
-    "validate_municipal_line_setback",
+    "validate_municipal_line_setback", "validate_preservation_radius",
 ]

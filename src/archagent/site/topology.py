@@ -23,7 +23,7 @@ ELEMENT_KINDS = (
     "curb", "dropped_curb", "driveway", "ramp", "plot_boundary", "municipal_drain",
     "drainage_pipe", "catch_basin", "drainage_chamber", "detention_chamber",
     "settling_chamber", "overflow", "drainage_outlet", "landscape_zone",
-    "paved_area", "basement",
+    "paved_area", "basement", "tree",
 )
 
 #: Relation vocabulary drawn directly from spec §10's own examples.

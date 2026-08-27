@@ -7,11 +7,20 @@ current state. This package reconstructs the latest active requirement set
 from a sequence of review rounds.
 """
 
-from .requirements import LifecycleState, LifecycleTracker, RequirementLifecycle
+from .requirements import (
+    LifecycleState,
+    LifecycleTracker,
+    RequirementLifecycle,
+    WorkflowStatus,
+    blocking_requirements,
+    workflow_status,
+    workflow_summary,
+)
 from .stages import PermitStage
 from .supersession import CommentEvolution, evolve, similarity
 
 __all__ = [
     "CommentEvolution", "LifecycleState", "LifecycleTracker", "PermitStage",
-    "RequirementLifecycle", "evolve", "similarity",
+    "RequirementLifecycle", "WorkflowStatus", "blocking_requirements", "evolve",
+    "similarity", "workflow_status", "workflow_summary",
 ]

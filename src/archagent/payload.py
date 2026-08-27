@@ -52,6 +52,9 @@ def run_payload(result, messages: Messages | None = None) -> dict:
             "summary": comment.summary or (comment.requirement.describe_in(messages)
                                            if comment.requirement else ""),
             "requirement": comment.normalized_requirement,
+            "requirement_type": comment.requirement_type.value if comment.requirement_type else "",
+            "requirement_type_label": messages.requirement_type(comment.requirement_type),
+            "discipline": comment.affected_discipline,
             "source": comment.interpretation_source,
             "status": messages.status(item.status) if item else "",
             "status_key": item.status.value if item else "",

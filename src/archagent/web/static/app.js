@@ -529,6 +529,9 @@ function renderComments(result) {
     head.append(el('span', 'comment-id', comment.id));
     head.append(el('span', `pill ${comment.tone}`, comment.status));
     head.append(el('span', 'tag', comment.department));
+    if (comment.requirement_type_label) {
+      head.append(el('span', 'tag', comment.requirement_type_label));
+    }
     if (comment.source && comment.source !== 'rules') {
       head.append(el('span', 'tag', comment.source === 'llm+rules' ? 'מודל + כללים' : 'מודל'));
     }
