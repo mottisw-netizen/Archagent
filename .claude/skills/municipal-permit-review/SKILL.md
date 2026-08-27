@@ -1739,16 +1739,26 @@ everything into generic dimensions:
   `turning.turning_path_points(...)` produces real inner/outer arc geometry
   (not a text match on a radius number); `clearance.check_clearances(...)`
   measures column/wall obstructions against a drive-path edge as 2D
-  point-to-segment distance.
+  point-to-segment distance; `ramp.validate_ramp_slope(...)` checks a ramp's
+  grade (derived from elevations + length when not given directly) and width
+  independently, reporting "no slope could be measured" rather than
+  fabricating one when neither is available.
 - `archagent.site` - a discipline-neutral topology (`SiteElement`,
   `SiteRelation` for `drains_to` / `overflows_to` / `crosses` / `references` /
-  `connects_to`), an `ElevationGraph` with real slope calculation
-  (`Δz / horizontal_distance`), and `archagent.site.drainage` - a graph-based
-  drainage network validator: coverage, flow direction, elevation
-  consistency, capacity evidence (via `PermitEvidenceChecker` - never invents
-  a hydraulic capacity), and the municipal-drainage-line 2 m setback as an
-  explicit *conditional* rule (waived only when a diversion solution is
-  submitted).
+  `connects_to`), typed `Road`/`Sidewalk`/`Curb` (dropped/mountable, by
+  `kind`) and `Pipe` (diameter, length, invert levels, `pipe_slope(...)`) for
+  the objects the record's comments name numbers for, an `ElevationGraph`
+  with real slope calculation (`Δz / horizontal_distance`) and a
+  `cross_section()` longitudinal profile (station vs elevation), and
+  `archagent.site.drainage` - a graph-based drainage network validator:
+  coverage, flow direction, elevation consistency, capacity evidence (via
+  `PermitEvidenceChecker` - never invents a hydraulic capacity), the
+  municipal-drainage-line 2 m setback as an explicit *conditional* rule
+  (waived only when a diversion solution is submitted), and
+  `chamber_volume(node)` - real rectangular/cylindrical volume from given
+  chamber dimensions, explicitly *not* a hydraulic-capacity claim (whether
+  that volume suffices for the design flow stays an evidence question, never
+  computed here).
 - `archagent.environment` - `SensitiveRoom`, `AirEmissionSource`,
   `RadiationReport`, `EVChargingPoint`, etc., with checks lifted directly from
   the spec's own test examples (no living-room window facing a ramp, the
@@ -1777,6 +1787,26 @@ a real Civil 3D drawing; see §25.13. Nor is any of this a facade-recognition
 tool: `Facade`/`FacadePanel`/etc. are records a caller populates from a
 drawing or a document, not something extracted automatically from a Revit
 elevation view.
+
+The DXF adapter's existing layer-name semantic classification
+(`archagent.drawing.dxf_model.LAYER_CATEGORIES` - this predates this layer;
+it already read `A-PARK` → parking, `A-BLDG` → building, etc.) is extended
+with `MUNI`/`CHAMBER`/`MANHOLE`/`DRAIN`/`CURB`/`RAMP`/`TREE`/`PLNT` keywords
+so a civil/landscape DXF layer resolves to `municipal_drain`,
+`drainage_chamber`, `catch_basin`, `drainage_pipe`, `curb`, `ramp`, `tree`,
+`landscape_zone` the same way an architectural one already did - kept in
+sync in the AutoCAD add-in's C# (`autocad-addin/src/EntityView.cs`, unbuilt/
+unverified there like the rest of that add-in). This is real heuristic
+classification from layer-naming convention, still not the semantic
+understanding of a live Civil 3D session - see §25.13.
+
+`archagent.drawing.ifc_model.read_ifc(...)` is a minimal, dependency-free
+reader for IFC's STEP/SPF text format: entity type + GlobalId + Name only, no
+geometry, no property sets, no round-trip, and **not wired into
+`archagent.adapters`** - opening an `.ifc` file still only means the input
+manifest recognises the extension, not that a live driver exists for it. This
+is an honest partial answer to "IFC import": real BIM round-trip needs either
+`ifcopenshell` or substantially more engineering than this reader attempts.
 
 ### 25.6 Conditional requirements
 
@@ -1911,6 +1941,25 @@ scopes' `ConstraintLedger.evaluate(...)` whenever a civil plan executes - is
 not built. Do not read §25.11 as "cross-discipline validation is
 implemented"; see §25.13.
 
+**What was built instead, because the graph genuinely cannot do this:**
+`archagent.cross_source.check_cross_source_clearance(scopes, rules)`. Two
+disciplines' drawings are different files opened by different adapters -
+there is no driver that holds both a civil DWG's municipal drainage line and
+an architecture model's basement wall, so nothing about the dependency graph
+can measure a distance between them. What a real project *does* share is one
+site coordinate system, so this reads each open source's own `elements()`
+directly and compares centre-to-centre distance across every pair of scopes,
+for element-type rules such as the record's own municipal-drain/wall 2 m
+example (`DEFAULT_RULES`). Wired into `Orchestrator.run()` -
+`result.cross_source_conflicts`, one open item per violation (naming both
+elements and both sources), surfaced in the run payload for the Web Editor.
+Proven end-to-end in `tests/test_cross_source_orchestrator.py`, not just as a
+standalone function. This is real geometric conflict detection across
+sources; it is not the same thing as re-validating a *constraint* in another
+discipline (still not built, per the limit above), and its distance is
+centre-to-centre (coarser than a single driver's own edge-to-edge
+`calculate_distance`), since no shared API spans two independent files.
+
 ### 25.12 The Web Editor
 
 The existing Web Editor (§2, `archagent/web/`) is unchanged in structure - no
@@ -1921,10 +1970,31 @@ Hebrew and English) and `discipline` on every comment entry, and the comments
 panel in `static/app.js` shows the requirement-type label as one more `.tag`
 pill next to the existing department tag - reusing the existing neutral tag
 style, never one of the reserved status colours (§13.1). Evidence/approval
-references, cross-discipline impact highlighting, and a semantic
-element-selection UI are **not yet built** - §25.4's evidence graph and
-§25.11's discipline nodes are the data those would render from, but no
-frontend consumes them yet.
+references and cross-discipline impact highlighting are **not yet built** -
+§25.4's evidence graph and §25.11's discipline nodes are the data those
+would render from, but no frontend consumes them yet.
+
+**Manual editing** now exists (`archagent.manual_edit`): a second, parallel
+control surface onto the *same* `DrawingDriver` mutation primitives
+(`move_element`/`resize_element`/`delete_element`) `ExecutionAgent` already
+uses for comment-driven corrections - nothing new was needed at the driver
+level, only a direct path to them for a human decision instead of a
+municipal comment. Three endpoints (`GET .../versions`, `GET .../model`,
+`POST .../edit`) and a new `ModelEditor` class in `app.js` (an "עריכת מודל"
+button next to the run-launch button) give select/move/delete with a
+version selector that doubles as undo/redo - selecting an earlier version
+and editing from there forks a new version rather than rewriting history,
+consistent with the immutable-versioning invariant everywhere else in this
+skill. `PlanViewer` (the results before/after viewer) was not modified;
+`ModelEditor` is its own class that happens to reuse the same canvas
+transform math. Verified end-to-end in a real headless-Chromium session, not
+just at the API level - see `tests/test_manual_edit.py` and
+`tests/test_web_manual_edit.py`. Scope: this edits a project's JSON model
+file, the same file every example/demo project in this repository already
+uses - it does not reach into a live Revit/AutoCAD session (§12.3). Movement
+is by a fixed, selectable step (grid-snapped, not freehand pixel dragging);
+resize exists at the driver/API level with no UI control yet; there is no
+"create a new element" UI.
 
 ### 25.13 Honest capability boundaries
 
@@ -1941,19 +2011,30 @@ what is not done.
   `EXPIRED` professional-approval status) and its checker; stricter
   resolution semantics; a general structured `ConditionalRequirement` engine;
   the tree/forestry model; the generic external-infrastructure requirement
-  record; traffic parking/turning/clearance data models and validators; the
-  site topology/elevation/drainage data models and validators; the
-  environmental semantic model and its spec-example checks; the architecture
-  envelope model (`Facade`/`Balcony`/`Pergola`/`Screen`/etc.) and its
-  landscape/development ratio validators; Hebrew directional/spatial/
-  conditional vocabulary recognition (`archagent.lang.spatial`); sheet
-  tracking plus a dedicated `Revision` changelog; discipline nodes/edges
-  recorded in the merged dependency graph (reportable, see the limit noted
-  in §25.11); the submission-readiness gate; the multi-disciplinary
-  planning-alternatives structure; requirement-type
-  surfaced in the Web Editor payload and UI; a Petah Tikva regression corpus
-  (`tests/fixtures/petah_tikva/`) and an end-to-end fixture project
-  (`examples/project_petah_tikva/`, `tests/test_petah_tikva.py`).
+  record; traffic parking/turning/clearance/ramp-slope data models and
+  validators; typed `Pipe`/`Road`/`Sidewalk`/`Curb` site objects and their
+  validators; drainage chamber volume (`chamber_volume`, real geometry, never
+  a hydraulic-capacity claim); an elevation cross-section/profile export
+  (`ElevationGraph.cross_section()`); the environmental semantic model and
+  its spec-example checks; the architecture envelope model
+  (`Facade`/`Balcony`/`Pergola`/`Screen`/etc.) and its landscape/development
+  ratio validators; Hebrew directional/spatial/conditional vocabulary
+  recognition (`archagent.lang.spatial`); sheet tracking plus a dedicated
+  `Revision` changelog; **real cross-source geometric conflict detection**
+  across two independently-opened drivers (`archagent.cross_source`, wired
+  into `Orchestrator.run()`, proven end-to-end - see §25.11); civil/landscape
+  DXF layer-name classification (extends the pre-existing architectural one);
+  a minimal read-only IFC (STEP/SPF) entity reader; the submission-readiness
+  gate; the multi-disciplinary planning-alternatives structure;
+  requirement-type surfaced in the Web Editor payload and UI; **manual
+  editing in the Web Editor** (select/move/delete with an undo/redo-capable
+  version selector, verified in a real browser - see §25.12); a Petah Tikva
+  regression corpus 3x its original size (`tests/fixtures/petah_tikva/`, 40
+  labelled comments plus a two-lineage lifecycle sequence) and an
+  end-to-end fixture project (`examples/project_petah_tikva/`,
+  `tests/test_petah_tikva.py`); one deterministic-parser false positive found
+  while building that corpus, disclosed and pinned down as a regression test
+  rather than silently worked around (`tests/test_known_limitations.py`).
 - **Partially implemented:** Hebrew conditional-language *detection*
   (`archagent.lang.spatial.looks_conditional`) flags that a comment reads as
   conditional, but does not extract its clause into a `Condition`
@@ -1964,48 +2045,45 @@ what is not done.
   not wired into `Orchestrator.run()` or the Web Editor UI yet; intercardinal
   directions (`צפון-מערב`) are recognised by `archagent.lang.spatial` but
   deliberately not fed into the deterministic setback parser, whose geometry
-  engine only has axes for the four cardinal directions.
-- **Not implemented:** an actual cross-discipline **validation** engine - the
-  `discipline` nodes of §25.11 record that civil constrains architecture/
-  landscape/traffic/structure, but are not wired into `impact_set(...)`, so a
-  civil-discipline change does not yet trigger re-validation of another
-  discipline's constraints; a manual dimension-editing UI in the Web Editor
-  (move/create/delete/resize, snapping, undo/redo - the existing UI is a
-  review/consultation surface, changes are made through the plan/execute/
-  ChangeSet pipeline, never by dragging a shape in the browser); any 3D
-  model, cross-section, or volume calculation (the elevation graph is a 1D
-  chain of named points and slopes between them, not a 3D model; a drainage
-  chamber's volume/`נפח` is recognised only as parser vocabulary, never
-  computed); IFC import/export (`.ifc` is recognised as a filename extension
-  in the input manifest, nothing more - no IFC parser exists); a dedicated
-  `Pipe`/typed drainage-pipe object (`"drainage_pipe"` is a generic
-  `SiteElement` kind with no diameter/invert-level fields of its own); a
-  slope/grade validator specific to `Ramp` (the dataclass has a `slope`
-  field; nothing checks it against a required grade); automatic
-  parking-schedule extraction from a drawing (reconciliation exists, but
-  nothing yet reads a schedule table into a `ParkingBalance` automatically);
-  the professional/document extractor that would populate `Evidence` records
-  from an actual PDF (`archagent.evidence.extractor` from the spec's module
-  list does not exist - PDFs are still read/markup only, per §3.3, though
-  `Evidence` now has the `page`/`region`/`extraction_method`/`confidence`
-  fields such an extractor would populate); an authority-profile-aware router
-  (routing still uses the generic department/discipline table, not the
-  authority profile's `disciplines.yaml`, though both agree for Petah Tikva);
+  engine only has axes for the four cardinal directions; manual editing in
+  the Web Editor covers move (fixed, selectable step - grid-snapped, not
+  freehand pixel dragging) and delete with real UI, while resize exists at
+  the driver/API level with no UI control yet, and there is no "create a new
+  element" UI at all.
+- **Not implemented:** an actual cross-discipline **constraint validation**
+  engine - the `discipline` nodes of §25.11 record that civil constrains
+  architecture/landscape/traffic/structure, but are not wired into
+  `impact_set(...)`, so a civil-discipline change does not yet trigger
+  re-validation of another discipline's *constraints* (§25.11's
+  `cross_source` module is real geometric conflict detection, a different
+  and narrower thing - see there for the distinction); any 3D solid model
+  (the elevation graph and its cross-section are a 1D/2D chain of named
+  points, not a volumetric model); automatic parking-schedule extraction
+  from a drawing (reconciliation exists, but nothing yet reads a schedule
+  table into a `ParkingBalance` automatically); the professional/document
+  extractor that would populate `Evidence` records from an actual PDF
+  (`archagent.evidence.extractor` from the spec's module list does not
+  exist - PDFs are still read/markup only, per §3.3, though `Evidence` now
+  has the `page`/`region`/`extraction_method`/`confidence` fields such an
+  extractor would populate); an authority-profile-aware router (routing
+  still uses the generic department/discipline table, not the authority
+  profile's `disciplines.yaml`, though both agree for Petah Tikva);
   evidence/approval references and cross-discipline highlighting in the Web
   Editor UI (§25.12); multi-municipality dashboards; automated professional
   report generation; historical learning from resolved comments.
-- **Regression corpus size, stated plainly:** `tests/fixtures/petah_tikva/`
-  covers 13 labelled comments plus a 4-round lifecycle sequence, drawn from
-  the supplied Petah Tikva record's own examples - enough to test each
-  capability above at least once, but nowhere near "many municipality files."
-  It is a seed corpus to extend, not a large-scale benchmark.
 - **Requires external CAD capability, not provided here:** any live reading
   of Civil 3D-native objects (Alignment, Profile, Corridor, PipeNetwork,
   Parcel, TIN Surface) - the AutoCAD/Civil 3D adapter still operates on plain
   DXF entities, exactly as documented in §12.3-12.4, and this extension does
-  not change that. `archagent.site` and `archagent.traffic` model the
-  *domain*, not a Civil 3D reader; feeding them requires either manual data
-  entry or a future Civil 3D-native adapter.
+  not change that (though its layer-name classification now covers
+  civil/landscape keywords too - see §25.5). `archagent.site` and
+  `archagent.traffic` model the *domain*, not a Civil 3D reader; feeding them
+  requires either manual data entry or a future Civil 3D-native adapter. Real
+  IFC round-trip (not the minimal read-only entity reader this layer adds)
+  needs either `ifcopenshell` or substantially more engineering. Manual
+  editing in the Web Editor reaches a project's JSON model file, never a
+  live Revit/AutoCAD session - that still goes through the tool's own
+  add-in (§12.3).
 - **Requires professional approval, always:** every geometry number this
   layer helps organize is still a proposal under §1.2/§16 - none of this
   layer's outputs (a `FULLY_RESOLVED` state, a `READY_FOR_PROFESSIONAL_REVIEW`
