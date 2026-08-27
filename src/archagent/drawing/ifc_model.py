@@ -21,7 +21,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-_STEP_RECORD = re.compile(r"^#(?P<id>\d+)\s*=\s*(?P<type>[A-Z][A-Z0-9]*)\s*\((?P<args>.*)\)\s*;\s*$")
+#: STEP (ISO 10303-21) keywords are case-insensitive, and real exporters do
+#: differ - `IFCWINDOW`, `IfcWindow` and `ifcwindow` are the same entity - so
+#: the record is matched case-insensitively and the type upper-cased before
+#: it is looked up in :data:`IFC_TYPE_MAP`.
+_STEP_RECORD = re.compile(
+    r"^#(?P<id>\d+)\s*=\s*(?P<type>[A-Za-z][A-Za-z0-9_]*)\s*\((?P<args>.*)\)\s*;\s*$")
 
 #: IFC entity type -> the generic vocabulary the rest of the pipeline already
 #: uses (archagent.drawing.dxf_model.LAYER_CATEGORIES' target names). An IFC
@@ -83,10 +88,11 @@ def read_ifc(path: str | Path) -> dict:
     buffer = ""
     for raw_line in text.splitlines():
         line = raw_line.strip()
-        if line == "DATA;":
+        marker = line.upper()          # STEP section keywords are case-insensitive too
+        if marker == "DATA;":
             in_data = True
             continue
-        if line == "ENDSEC;":
+        if marker == "ENDSEC;":
             in_data = False
             continue
         if not in_data:
@@ -98,7 +104,7 @@ def read_ifc(path: str | Path) -> dict:
         match = _STEP_RECORD.match(record)
         if not match:
             continue
-        ifc_type = match.group("type")
+        ifc_type = match.group("type").upper()
         element_type = IFC_TYPE_MAP.get(ifc_type)
         if element_type is None:
             continue

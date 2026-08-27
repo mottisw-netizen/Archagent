@@ -77,7 +77,7 @@ function bindControls() {
   $('#cad-check').addEventListener('click', checkCad);
   $('#cad-source').addEventListener('change', checkCad);
   $('#edit-model-button').addEventListener('click', () => openModelEditor(state.selected));
-  $('#edit-close').addEventListener('click', () => { $('#model-editor').hidden = true; });
+  $('#edit-close').addEventListener('click', closeModelEditor);
   $('#edit-version').addEventListener('change', () => reloadModelEditorVersion());
   $('#tabs').addEventListener('click', (event) => {
     const button = event.target.closest('button[data-tab]');
@@ -205,6 +205,9 @@ function selectProject(projectId) {
     : '';
   $('#start-button').disabled = !project;
   $('#edit-model-button').disabled = !project || !project.has_model;
+  // An editor left open from the previous project would keep POSTing its
+  // edits to that project - close it whenever the selection changes.
+  if (state.modelEditor && state.modelEditor.projectId !== projectId) closeModelEditor();
   document.querySelectorAll('#project-list button').forEach((button) => {
     button.setAttribute('aria-pressed',
       String(button.querySelector('strong').textContent === (project && project.name)));
@@ -1003,9 +1006,22 @@ class ModelEditor {
     this._resizeObserver.disconnect();
   }
 
-  setModel(version, model) {
+  setModel(version, model, { keepView = false } = {}) {
     this.version = version;
     this.model = model;
+    // After an edit the user is still working on the same element in the
+    // same corner of the plan: keep the camera and the selection so the move
+    // controls stay under the cursor instead of vanishing on every nudge.
+    // A deleted element cannot stay selected, and switching version is a
+    // deliberate context change, so both re-frame.
+    const stillThere = this.selected
+      && (model.elements || []).find((element) => element.id === this.selected.id);
+    if (keepView && stillThere) {
+      this.selected = stillThere;
+      this._renderDetails(stillThere);
+      this._draw();
+      return;
+    }
     this.selected = null;
     this._renderDetails(null);
     this.resetView();
@@ -1098,7 +1114,7 @@ class ModelEditor {
         base_version: this.version, action, element_id: this.selected.id, ...params,
       });
       await refreshModelEditorVersions(this.projectId, body.version);
-      this.setModel(body.version, body.model);
+      this.setModel(body.version, body.model, { keepView: true });
       toast(`נשמר כגרסה ${body.version}`);
     } catch (error) {
       toast(error.message, true);
@@ -1163,15 +1179,30 @@ async function openModelEditor(projectId) {
   try {
     const versions = await refreshModelEditorVersions(projectId);
     const latest = versions[versions.length - 1];
-    const { model } = await api.get(`/api/projects/${projectId}/model`,
-      { version: latest === 'original' ? undefined : latest });
+    // Always send the version explicitly, "original" included: omitting it
+    // asks the server for the *latest* version, which would render v3's
+    // model under an "original" label and then fork the next edit off the
+    // pristine source, quietly dropping what the user was looking at.
+    const { model, version } = await api.get(`/api/projects/${projectId}/model`,
+      { version: latest });
+    // Tear down any previous editor first, then unhide, and only then build:
+    // ModelEditor measures its canvas in the constructor, so it has to be
+    // laid out (not hidden) by that point or it starts at 0x0.
+    closeModelEditor();
     $('#model-editor').hidden = false;
-    const canvas = $('#edit-canvas');
-    if (state.modelEditor) state.modelEditor.destroy();
-    state.modelEditor = new ModelEditor(canvas, $('#edit-details'), projectId, latest, model);
+    state.modelEditor = new ModelEditor(
+      $('#edit-canvas'), $('#edit-details'), projectId, version, model);
   } catch (error) {
     toast(error.message, true);
   }
+}
+
+function closeModelEditor() {
+  if (state.modelEditor) {
+    state.modelEditor.destroy();
+    state.modelEditor = null;
+  }
+  $('#model-editor').hidden = true;
 }
 
 async function refreshModelEditorVersions(projectId, select) {
@@ -1189,10 +1220,12 @@ async function refreshModelEditorVersions(projectId, select) {
 
 async function reloadModelEditorVersion() {
   if (!state.modelEditor) return;
-  const version = $('#edit-version').value;
+  const wanted = $('#edit-version').value;
   try {
-    const { model } = await api.get(`/api/projects/${state.modelEditor.projectId}/model`,
-      { version: version === 'original' ? undefined : version });
+    // Explicit version always (see openModelEditor) - and trust the server's
+    // own answer for which one it actually loaded.
+    const { model, version } = await api.get(
+      `/api/projects/${state.modelEditor.projectId}/model`, { version: wanted });
     state.modelEditor.setModel(version, model);
   } catch (error) {
     toast(error.message, true);

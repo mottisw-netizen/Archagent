@@ -33,10 +33,24 @@ namespace Archagent.Acad
         public const string AppName = "ARCHAGENT";
 
         //: Layer-name keyword -> the vocabulary the planner reasons about.
-        //: Checked as a substring of the layer name, longest keyword first, so
-        //: "A-PARK-VISITOR" still matches "park" -> parking.
+        //: Checked as a substring of the layer name, so "A-PARK-VISITOR"
+        //: matches "PARK" -> parking.
+        //:
+        //: ORDER IS SIGNIFICANT - the first keyword found in the layer name
+        //: wins, so every specific keyword must precede any more general one
+        //: that could appear in the same layer name ("C-ROAD-CURB" has to be
+        //: curb, not the driveway a leading "ROAD" entry would give it).
+        //: Kept in the same order as
+        //: archagent.drawing.dxf_model.LAYER_CATEGORIES (Python), so a
+        //: drawing categorises identically live and headlessly.
         private static readonly (string Keyword, string Category)[] LayerCategories =
         {
+            // --- specific first (roads/drainage/landscape) ---
+            ("MUNI", "municipal_drain"), ("CHAMBER", "drainage_chamber"),
+            ("MANHOLE", "catch_basin"), ("DRAIN", "drainage_pipe"),
+            ("CURB", "curb"), ("RAMP", "ramp"), ("TREE", "tree"),
+            ("PLNT", "landscape_zone"), ("PLANT", "landscape_zone"),
+            // --- then the general architectural vocabulary ---
             ("PARK", "parking"), ("PARKING", "parking"),
             ("BLDG", "building"), ("BUILDING", "building"),
             ("WALL", "wall"),
@@ -53,15 +67,6 @@ namespace Archagent.Acad
             ("DIM", "dimension"),
             ("TEXT", "text"), ("ANNO", "text"),
             ("SITE", "site"), ("PROP", "site"),
-            // roads/drainage/landscape (Petah Tikva spec §9-14) - kept in
-            // sync with archagent.drawing.dxf_model.LAYER_CATEGORIES (Python).
-            // Specific keywords before general ones: a layer named
-            // "C-DRAIN-MUNI" must resolve to municipal_drain, not the more
-            // generic drainage_pipe that "DRAIN" alone would give it.
-            ("MUNI", "municipal_drain"), ("CHAMBER", "drainage_chamber"),
-            ("MANHOLE", "catch_basin"), ("DRAIN", "drainage_pipe"), ("CURB", "curb"),
-            ("RAMP", "ramp"), ("TREE", "tree"), ("PLNT", "landscape_zone"),
-            ("PLANT", "landscape_zone"),
         };
 
         public static string CategoryOf(Entity entity)

@@ -23,18 +23,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .audit import AuditLog
 from .drawing.api import DrawingAPIError, DrawingDriver
 from .drawing.json_model import JSONModelDriver
 from .ingest import Ingestor
 from .models import ChangeRecord, VersionManifest, new_id
-from .versioning import VersionStore
+from .versioning import VersionError, VersionStore
 
 VALID_ACTIONS = ("move", "resize", "delete")
 
+#: The version label meaning "before any version was ever saved" - the
+#: project's own ingested source model.
+ORIGINAL = "original"
+
 
 class ManualEditError(Exception):
-    """A manual edit could not be applied - bad input or a driver failure,
-    never silently ignored."""
+    """A manual edit could not be applied - bad input, an unreadable version,
+    or a driver failure. Every failure this module can produce is raised as
+    this one type, so a caller (the web layer included) never has to catch a
+    ``VersionError`` or a ``DrawingAPIError`` leaking out of it.
+    """
 
 
 @dataclass
@@ -53,6 +61,39 @@ def _source_model_path(project_dir: Path) -> Path:
     raise ManualEditError("no JSON source model was found for this project")
 
 
+def list_versions(project_dir: Path) -> list[str]:
+    """Every editable version of this project, oldest first, starting with
+    ``"original"``.
+
+    Read-only on purpose: unlike :class:`~archagent.versioning.VersionStore`,
+    which creates its root directory on construction, merely *listing* a
+    project's versions must not write anything into it - a browser opening
+    the editor should never leave a ``versions/`` directory behind in a
+    project it did not edit (the bundled ``examples/`` tree especially).
+    """
+    root = Path(project_dir) / "versions"
+    if not root.is_dir():
+        return [ORIGINAL]
+    return [ORIGINAL] + VersionStore(root).versions()
+
+
+def _load_version(versions: VersionStore, version: str) -> DrawingDriver:
+    try:
+        path = versions.model_path(version)
+    except VersionError as error:
+        # A run that versioned a DXF/DWG project saved project_v1.dxf, so the
+        # .json VersionStore looks for is absent. Name the format actually
+        # found rather than reporting a bare "no model saved" (manual editing
+        # is JSON-model only - see the module docstring).
+        saved = sorted(versions.directory(version).glob(f"project_{version}.*"))
+        if saved:
+            raise ManualEditError(
+                f"version {version} was saved as {saved[0].suffix} - manual editing "
+                "supports JSON model projects only") from error
+        raise ManualEditError(str(error)) from error
+    return JSONModelDriver.load(path)
+
+
 def load_driver_for_edit(project_dir: Path, base_version: str | None = None
                          ) -> tuple[DrawingDriver, str, VersionStore]:
     """The driver to edit, loaded at ``base_version`` (or the latest existing
@@ -61,16 +102,16 @@ def load_driver_for_edit(project_dir: Path, base_version: str | None = None
     versions = VersionStore(project_dir / "versions")
     existing = versions.versions()
 
-    if base_version == "original":
-        return JSONModelDriver.load(_source_model_path(project_dir)), "original", versions
+    if base_version == ORIGINAL:
+        return JSONModelDriver.load(_source_model_path(project_dir)), ORIGINAL, versions
     if base_version is not None:
         if base_version not in existing:
             raise ManualEditError(f"no such version: {base_version!r}")
-        return JSONModelDriver.load(versions.model_path(base_version)), base_version, versions
+        return _load_version(versions, base_version), base_version, versions
     if existing:
         latest = existing[-1]
-        return JSONModelDriver.load(versions.model_path(latest)), latest, versions
-    return JSONModelDriver.load(_source_model_path(project_dir)), "original", versions
+        return _load_version(versions, latest), latest, versions
+    return JSONModelDriver.load(_source_model_path(project_dir)), ORIGINAL, versions
 
 
 def apply_manual_edit(versions: VersionStore, driver: DrawingDriver, base_version: str,
@@ -87,7 +128,7 @@ def apply_manual_edit(versions: VersionStore, driver: DrawingDriver, base_versio
         # deciding this action directly, right now, not the agent proposing
         # one for review. It still only reaches the model through the same
         # `authorised` gate every other mutation does, and is versioned and
-        # audited identically.
+        # audited the same way.
         with driver.authorised(plan_id):
             if action == "move":
                 change = driver.move_element(element_id, params["distance"], params["direction"])
@@ -107,6 +148,17 @@ def apply_manual_edit(versions: VersionStore, driver: DrawingDriver, base_versio
         version=version, parent_version=base_version, operating_mode="manual_edit",
         validation_result="not_evaluated",
     )
-    versions.create(driver, manifest, [change])
+    try:
+        record = versions.create(driver, manifest, [change])
+    except VersionError as error:
+        # Two edits racing for the same next_version(), or a version
+        # directory that already exists - never silently overwrite one.
+        raise ManualEditError(str(error)) from error
+
+    audit = AuditLog(record.audit_path)
+    audit.write("manual_edit", "api_call", plan_id=plan_id, tool=change.tool,
+                result="ok", before=change.before, after=change.after,
+                params={"element_id": change.element_id, "property": change.property,
+                        "action": action, "base_version": base_version})
     return ManualEditResult(version=version, parent_version=base_version,
                             change=change, model=driver.plan_model())

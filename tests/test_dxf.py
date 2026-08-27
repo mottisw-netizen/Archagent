@@ -80,16 +80,37 @@ def test_civil_and_landscape_layer_names_resolve_to_semantic_types(tmp_path, lay
     assert model["elements"][0]["type"] == expected_type
 
 
-def test_municipal_drain_keyword_wins_over_the_more_generic_drain_keyword(tmp_path):
-    """LAYER_CATEGORIES checks entries in order - MUNI must be listed before
-    the more general DRAIN so a combined layer name still resolves specifically."""
+@pytest.mark.parametrize("layer,expected_type", [
+    # LAYER_CATEGORIES is first-match-wins, so every specific keyword has to
+    # precede any more general one that can appear in the same layer name.
+    ("C-DRAIN-MUNI-LINE", "municipal_drain"),   # MUNI before DRAIN
+    ("C-ROAD-CURB", "curb"),                    # CURB before ROAD
+    ("C-ROAD-RAMP", "ramp"),                    # RAMP before ROAD
+    ("C-ROAD-DRAIN", "drainage_pipe"),          # DRAIN before ROAD
+    ("SITE-TREE", "tree"),                      # TREE before SITE
+    ("SITE-PLANTING", "landscape_zone"),        # PLANT before SITE
+])
+def test_a_specific_keyword_always_beats_a_more_general_one(tmp_path, layer, expected_type):
     doc = ezdxf.new("R2018")
     doc.modelspace().add_lwpolyline(
-        [(0, 0), (1, 0), (1, 1), (0, 1)], close=True, dxfattribs={"layer": "C-DRAIN-MUNI-LINE"})
+        [(0, 0), (1, 0), (1, 1), (0, 1)], close=True, dxfattribs={"layer": layer})
     path = tmp_path / "civil.dxf"
     doc.saveas(path)
     _, model = read_dxf(path)
-    assert model["elements"][0]["type"] == "municipal_drain"
+    assert model["elements"][0]["type"] == expected_type
+
+
+def test_plain_architectural_layers_are_unaffected_by_the_reordering(tmp_path):
+    doc = ezdxf.new("R2018")
+    msp = doc.modelspace()
+    for layer in ("A-BLDG", "A-PARK", "A-WALL", "A-ROAD", "A-SITE"):
+        msp.add_lwpolyline([(0, 0), (1, 0), (1, 1), (0, 1)], close=True,
+                           dxfattribs={"layer": layer})
+    path = tmp_path / "arch.dxf"
+    doc.saveas(path)
+    _, model = read_dxf(path)
+    assert [e["type"] for e in model["elements"]] == [
+        "building", "parking", "wall", "driveway", "site"]
 
 
 def test_xdata_tag_overrides_the_layer_guess(dxf_file):

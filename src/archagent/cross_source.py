@@ -10,22 +10,20 @@ in one shared site coordinate system, though, so the two elements' plain
 geometry - `x`, `y`, `w`, `h` - is directly comparable across drivers even
 though no single `DrawingDriver.calculate_distance` call spans them.
 
-This is centre-to-centre distance in that shared frame - coarser than a
-driver's own edge-to-edge `calculate_distance` within one model, but the only
-measurement available across two independent files with no shared API.
-Nothing here fabricates a conflict: a rule with no matching elements in
-either scope produces no violation, and only a real coordinate gap smaller
-than the rule's clearance is reported.
+The measurement itself is not re-implemented here: it is
+:func:`archagent.drawing.geometry.clear_gap`, the same edge-to-edge clear
+distance a single driver's own ``calculate_distance`` uses, applied to the
+two elements' bounding boxes in the shared frame. Nothing here fabricates a
+conflict: a rule with no matching elements in either scope produces no
+violation, and only a real gap smaller than the rule's clearance is reported.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
+from .drawing import geometry as geo
 from .models import Serialisable
-
-Point = tuple[float, float]
 
 
 @dataclass
@@ -58,15 +56,15 @@ DEFAULT_RULES = [
 ]
 
 
-def _center(geometry: dict) -> Point | None:
+def _box(geometry: dict) -> geo.Box | None:
+    """The element's bounding box, or ``None`` when its geometry is missing
+    or of a kind :mod:`~archagent.drawing.geometry` cannot box."""
     if not geometry:
         return None
-    if geometry.get("kind") == "rect" and "x" in geometry and "y" in geometry:
-        return (geometry["x"] + geometry.get("w", 0.0) / 2.0,
-                geometry["y"] + geometry.get("h", 0.0) / 2.0)
-    if "x" in geometry and "y" in geometry:
-        return (geometry["x"], geometry["y"])
-    return None
+    try:
+        return geo.box_from_dict(geometry)
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def check_cross_source_clearance(scopes: list, rules: list[CrossSourceRule] = DEFAULT_RULES
@@ -94,19 +92,26 @@ def _check_pair(scope_a, index_a: list[dict], scope_b, index_b: list[dict],
                 rules: list[CrossSourceRule]) -> list[CrossSourceViolation]:
     found = []
     for rule in rules:
-        for forward, backward in ((rule.source_type, rule.target_type),
-                                  (rule.target_type, rule.source_type)):
+        # Each scope holds only its own discipline's elements, so a rule has
+        # to be tried both ways round - the drain may be in either file. A
+        # rule whose two types are the same would make the second pass
+        # identical to the first, reporting (and opening an item for) every
+        # violation twice, so it is run once.
+        orientations = [(rule.source_type, rule.target_type)]
+        if rule.source_type != rule.target_type:
+            orientations.append((rule.target_type, rule.source_type))
+        for forward, backward in orientations:
             sources = [e for e in index_a if e.get("type") == forward]
             targets = [e for e in index_b if e.get("type") == backward]
             for element_a in sources:
-                center_a = _center(element_a.get("geometry", {}))
-                if center_a is None:
+                box_a = _box(element_a.get("geometry", {}))
+                if box_a is None:
                     continue
                 for element_b in targets:
-                    center_b = _center(element_b.get("geometry", {}))
-                    if center_b is None:
+                    box_b = _box(element_b.get("geometry", {}))
+                    if box_b is None:
                         continue
-                    distance = math.hypot(center_a[0] - center_b[0], center_a[1] - center_b[1])
+                    distance = geo.clear_gap(box_a, box_b)
                     if distance < rule.min_clearance:
                         found.append(CrossSourceViolation(
                             source_scope=scope_a.adapter_name, source_element=element_a["id"],

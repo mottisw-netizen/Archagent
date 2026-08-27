@@ -63,21 +63,26 @@ METRES_PER_UNIT = {
 #: Layer-name keyword -> the vocabulary the planner reasons about - identical
 #: table to ``autocad-addin/src/EntityView.cs`` so a drawing behaves the same
 #: whether it is opened live or headlessly.
+#:
+#: **Order is significant - the first keyword found in the layer name wins.**
+#: Every specific keyword must therefore precede any more general one that
+#: could also appear in the same layer name: a real layer called
+#: ``C-ROAD-CURB`` has to resolve to ``curb``, not to the ``driveway`` that a
+#: leading ``ROAD`` entry would give it, and ``C-DRAIN-MUNI`` to
+#: ``municipal_drain`` rather than the plainer ``drainage_pipe``.
 LAYER_CATEGORIES = (
+    # --- specific first (roads/drainage/landscape, Petah Tikva spec §9-14) ---
+    ("MUNI", "municipal_drain"), ("CHAMBER", "drainage_chamber"),
+    ("MANHOLE", "catch_basin"), ("DRAIN", "drainage_pipe"),
+    ("CURB", "curb"), ("RAMP", "ramp"), ("TREE", "tree"),
+    ("PLNT", "landscape_zone"), ("PLANT", "landscape_zone"),
+    # --- then the general architectural vocabulary ---
     ("PARK", "parking"), ("BLDG", "building"), ("BUILDING", "building"),
     ("WALL", "wall"), ("ROOM", "room"), ("DOOR", "door"), ("WIND", "window"),
     ("STAIR", "stair"), ("RAIL", "railing"), ("FLOOR", "floor"), ("ROOF", "roof"),
     ("COL", "column"), ("ROAD", "driveway"), ("DRIVE", "driveway"),
     ("WALK", "sidewalk"), ("DIM", "dimension"), ("TEXT", "text"), ("ANNO", "text"),
     ("SITE", "site"), ("PROP", "site"),
-    # roads/drainage/landscape (Petah Tikva spec §9-14) - specific keywords
-    # before general ones, since the first matching entry wins: a layer
-    # named "C-DRAIN-MUNI" must resolve to municipal_drain, not the more
-    # generic drainage_pipe that "DRAIN" alone would give it.
-    ("MUNI", "municipal_drain"), ("CHAMBER", "drainage_chamber"),
-    ("MANHOLE", "catch_basin"), ("DRAIN", "drainage_pipe"), ("CURB", "curb"),
-    ("RAMP", "ramp"), ("TREE", "tree"), ("PLNT", "landscape_zone"),
-    ("PLANT", "landscape_zone"),
 )
 
 

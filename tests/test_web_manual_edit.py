@@ -101,3 +101,58 @@ def test_unknown_project_returns_404(client):
     assert client.get("/api/projects/does-not-exist/model").status_code == 404
     assert client.post("/api/projects/does-not-exist/edit",
                        json={"action": "move", "element_id": "x"}).status_code == 404
+
+
+# ----------------------------------------------------------------------
+# regressions found in code review
+# ----------------------------------------------------------------------
+def test_asking_for_original_returns_the_source_not_the_latest_version(client, project_id):
+    """The frontend sends version=original explicitly; the server must honour
+    it. Resolving it to the newest version instead would render a later
+    model under an 'original' label and silently fork the next edit off the
+    pristine source, losing the changes the user was looking at."""
+    client.post(f"/api/projects/{project_id}/edit", json={
+        "action": "move", "element_id": "wall-1", "distance": 3.0, "direction": "east",
+    })
+    body = client.get(f"/api/projects/{project_id}/model",
+                      params={"version": "original"}).json()
+    assert body["version"] == "original"
+    assert body["model"]["elements"][0]["geometry"]["x"] == pytest.approx(5.0)
+
+
+def test_listing_versions_does_not_create_a_versions_directory(client, project_id, tmp_path):
+    """Merely opening the editor must not write into a project - the bundled
+    examples/ tree especially."""
+    project_dir = server.projects.directory(project_id)
+    versions_dir = project_dir / "versions"
+    assert not versions_dir.exists()
+    client.get(f"/api/projects/{project_id}/versions")
+    assert not versions_dir.exists()
+
+
+def test_a_non_json_version_is_a_400_not_a_500(client, project_id):
+    """A run that versioned a DXF project saves project_v1.dxf; manual
+    editing is JSON-only, so it must say so rather than raising a
+    VersionError out of the endpoint."""
+    project_dir = server.projects.directory(project_id)
+    version_dir = project_dir / "versions" / "v1"
+    version_dir.mkdir(parents=True)
+    (version_dir / "project_v1.dxf").write_text("not json", encoding="utf-8")
+
+    assert client.get(f"/api/projects/{project_id}/versions").json()["versions"] == [
+        "original", "v1"]
+    response = client.get(f"/api/projects/{project_id}/model", params={"version": "v1"})
+    assert response.status_code == 404
+    assert "JSON model projects only" in response.json()["detail"]
+
+
+def test_a_manual_edit_writes_an_audit_entry(client, project_id):
+    client.post(f"/api/projects/{project_id}/edit", json={
+        "action": "move", "element_id": "wall-1", "distance": 1.0, "direction": "east",
+    })
+    audit = server.projects.directory(project_id) / "versions" / "v1" / "audit.jsonl"
+    assert audit.exists()
+    entry = json.loads(audit.read_text(encoding="utf-8").splitlines()[0])
+    assert entry["actor"] == "manual_edit"
+    assert entry["params"]["element_id"] == "wall-1"
+    assert entry["params"]["action"] == "move"

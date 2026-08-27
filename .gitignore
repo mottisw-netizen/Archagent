@@ -223,3 +223,8 @@ examples/project/output/
 examples/project_he/versions/
 examples/project_he/output/
 .archagent-cache/
+
+# Local state a run or a manual edit leaves inside a bundled example project -
+# versions, previews and reports are per-machine artefacts, never sources.
+examples/*/versions/
+examples/*/output/

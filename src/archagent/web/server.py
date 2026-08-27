@@ -25,8 +25,12 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..adapters import SourceRef, default_registry
 from ..llm import client as llm_client
-from ..manual_edit import ManualEditError, apply_manual_edit, load_driver_for_edit
-from ..versioning import VersionStore
+from ..manual_edit import (
+    ManualEditError,
+    apply_manual_edit,
+    list_versions,
+    load_driver_for_edit,
+)
 from .engines import ClaudeCodeEngine, build_engine
 from .projects import ProjectStore
 from .runs import RunManager
@@ -161,7 +165,9 @@ def list_project_versions(project_id: str) -> dict:
         project_dir = projects.directory(project_id)
     except KeyError:
         raise HTTPException(404, "no such project")
-    return {"versions": ["original"] + VersionStore(project_dir / "versions").versions()}
+    # Read-only: listing must not create a versions/ directory in a project
+    # the user only opened the editor on (see manual_edit.list_versions).
+    return {"versions": list_versions(project_dir)}
 
 
 @app.get("/api/projects/{project_id}/model")
