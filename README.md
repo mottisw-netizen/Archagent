@@ -279,6 +279,32 @@ An adapter that cannot serve a source says exactly what is missing, and the
 comments routed to it become **open items with a reason** - they do not fall
 through to the architectural model and they do not disappear.
 
+### One run, every connected tool - not just the primary
+
+The router deciding *where* a comment belongs was not enough on its own: every
+stage after it - mapping, planning, simulation, execution, validation - used to
+run only against the primary architectural driver. Point Archagent at two live
+sources today (`--source revit://... --source path/to/traffic.json`, or two
+live hosts) and a single run now maps, plans, simulates and executes against
+**each** source that has work routed to it, in the same run:
+
+```bash
+archagent run project --source revit://127.0.0.1:8735 --source project/traffic.json
+```
+
+* Each source is validated against **its own driver** - a comment answered in
+  the traffic file is never marked unresolved because it cannot be measured
+  through Revit, and vice versa.
+* The dependency graph, the constraint ledger and the change set are merged
+  across sources into one report; a comment no open, editable source can reach
+  still gets an honest `requires_human_review`, never a silent drop.
+* Versioning stays authoritative for the primary source (`save_as`, SKILL.md
+  16); every other source touched gets a reference JSON snapshot in the same
+  version directory - Archagent does not manage that tool's own file saving.
+* The change set gains `sources` (every tool touched), `multi_source`, and
+  `highlight_by_source` - a live host is only ever asked to select the
+  elements that are actually its own.
+
 ### Revit
 
 `revit-addin/` is a Revit 2024 add-in (C#) that exposes the **active document**

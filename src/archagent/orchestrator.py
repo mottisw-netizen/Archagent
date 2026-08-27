@@ -28,8 +28,8 @@ from .constraints import (
 from .consult import ConsultationAgent, Responder, apply_decision, auto_approve, defer
 from .drawing.api import DrawingAPIError, DrawingDriver
 from .execute import ExecutionAgent
-from .graph import build_graph, impact_set
-from .adapters import AdapterRegistry, Router, SourceRef, Workspace, default_registry
+from .graph import build_graph, impact_set, merge_graphs
+from .adapters import AdapterRegistry, OpenSource, Router, Routing, SourceRef, Workspace, default_registry
 from .ingest import Ingestor
 from .lang.messages import Messages
 from .llm.client import LLMClient
@@ -40,6 +40,7 @@ from .mapping import ElementMapper
 from .models import (
     ChangeRecord,
     CommentStatus,
+    CommentValidation,
     CorrectionPlan,
     Decision,
     Mode,
@@ -130,34 +131,62 @@ class Orchestrator:
 
         self._analyze_comments(context)
         self._build_ledger(context)
-        baseline = baseline_status(self.driver, self.ledger)
-        self.audit.write("orchestrator", "baseline", result=baseline)
 
-        blocked = self._route(context)
-        self._map_comments(context)
-        proposals = self._plan(context, baseline, blocked)
-        result.plans = [proposal.plan for proposal in proposals.values() if proposal.plan]
+        routings = self._route(context)
+        scopes = self._editable_scopes(routings)
+        for scope in scopes:
+            derive_implicit_constraints(scope.driver, self.ledger, self.m)
 
-        changes, decisions, consulted = self._decide_and_execute(context, proposals, baseline)
-        result.changes, result.decisions, result.consulted = changes, decisions, consulted
+        graphs = []
+        validations = []
+        merged_baseline: dict[str, str] = {}
+        primary = self._primary_scope()
+        for scope in scopes:
+            comment_ids = {cid for cid, routing in routings.items() if routing.source is scope}
+            if not comment_ids and scope is not primary:
+                # Nothing was routed here; opening it cost nothing and it has
+                # nothing to contribute to this run.
+                continue
 
-        graph = build_graph(result.plans, self.ledger.all, self.driver)
+            baseline = baseline_status(scope.driver, self.ledger)
+            for constraint_id, status in baseline.items():
+                merged_baseline.setdefault(constraint_id, status)
+            if scope is primary:
+                self.audit.write("orchestrator", "baseline", result=baseline)
+
+            self._map_comments(context, scope, comment_ids)
+            proposals = self._plan(context, scope, comment_ids, baseline)
+            scope_plans = [proposal.plan for proposal in proposals.values() if proposal.plan]
+            result.plans.extend(scope_plans)
+
+            changes, decisions, consulted = self._decide_and_execute(
+                context, scope, proposals, baseline)
+            result.changes.extend(changes)
+            result.decisions.extend(decisions)
+            result.consulted |= consulted
+
+            graphs.append(build_graph(scope_plans, self.ledger.all, scope.driver))
+
+            applied = {change.comment_id for change in result.changes if change.comment_id}
+            comments_here = [context.comment(cid) for cid in comment_ids]
+            validator = ValidationAgent(scope.driver, self.ledger, baseline, self.m)
+            validations.append((scope, validator.validate(
+                self.versions.next_version(), comments_here, applied)))
+
+        graph = merge_graphs(graphs)
         for cycle in graph.cycles():
             context.add_open_item(" -> ".join(cycle), self.m.t("r_cycle"),
                                   self.m.t("n_precedence"))
         result.graph = graph.to_dict()
         result.impact = impact_set(graph, result.plans)
 
-        validator = ValidationAgent(self.driver, self.ledger, baseline, self.m)
-        applied = {change.comment_id for change in changes if change.comment_id}
-        result.validation = validator.validate(self.versions.next_version(),
-                                               context.municipal_comments, applied)
+        result.validation = self._merge_validations(context, validations, routings)
         self.audit.write("validation_agent", "validation_result",
                          result=result.validation.result)
 
         self._record_open_items(context, result)
-        result.version = self._store_new_version(context, result, parent)
-        result.files = self._write_artefacts(context, result, parent, baseline)
+        result.version = self._store_new_version(context, result, parent, scopes)
+        result.files = self._write_artefacts(context, result, parent, scopes, merged_baseline)
         result.definition_of_done = self._definition_of_done(context, result)
         narrative = self._narrative(context, result)
         result.report = build_report(
@@ -335,16 +364,19 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # steps 4-7
     # ------------------------------------------------------------------
-    def _route(self, context: ProjectContext) -> set[str]:
+    def _route(self, context: ProjectContext) -> dict[str, Routing]:
         """Decide which adapter each comment belongs to (SKILL.md 2.1).
 
         A comment for a discipline whose adapter is unavailable - traffic on a
         consultant DWG, for instance - is not planned and not silently dropped:
-        it becomes an open item naming the adapter and what it needs.
+        it becomes an open item naming the adapter and what it needs. Every
+        comment gets a routing, whether or not it resolved to a source, so the
+        caller can tell "worked here" from "worked nowhere" without re-asking.
         """
-        blocked: set[str] = set()
+        routings: dict[str, Routing] = {}
         for comment in context.municipal_comments:
             routing = self.router.route(comment)
+            routings[comment.comment_id] = routing
             context.routing.append(routing.to_dict())
             self.audit.write("orchestrator", "routed",
                              params={"comment_id": comment.comment_id,
@@ -352,31 +384,54 @@ class Orchestrator:
                              result=routing.source.adapter_name if routing.routed
                              else routing.reason)
             if not routing.routed and routing.reason:
-                blocked.add(comment.comment_id)
                 context.add_open_item(comment.comment_id, routing.reason,
                                       routing.needed or self.m.t("n_human_decision"))
-        return blocked
+        return routings
 
-    def _map_comments(self, context: ProjectContext) -> None:
+    def _primary_scope(self) -> OpenSource | None:
+        return next((entry for entry in self.workspace.opened if entry.driver is self.driver),
+                   None)
+
+    def _editable_scopes(self, routings: dict[str, Routing]) -> list[OpenSource]:
+        """Every open source a plan can actually be written to this run.
+
+        The primary architectural source is always first, even with no
+        comments of its own this run, because parent/version bookkeeping and
+        the spatial preview are keyed to it. Every other source that at least
+        one comment was routed to, and that can edit, joins it - one run,
+        every connected tool that has work.
+        """
+        scopes: list[OpenSource] = []
+        primary = self._primary_scope()
+        if primary is not None:
+            scopes.append(primary)
+        for routing in routings.values():
+            source = routing.source
+            if source is not None and source.can_edit() and not any(s is source for s in scopes):
+                scopes.append(source)
+        return scopes
+
+    def _map_comments(self, context: ProjectContext, scope: OpenSource,
+                      comment_ids: set[str]) -> None:
         disambiguator = (ElementDisambiguator(self.llm, self.effort)
                          if self.llm is not None else None)
-        mapper = ElementMapper(self.driver, self.m, disambiguator)
+        mapper = ElementMapper(scope.driver, self.m, disambiguator)
         for comment in context.municipal_comments:
+            if comment.comment_id not in comment_ids:
+                continue
             mapping = mapper.map_comment(comment)
             context.mappings.append(mapping)
             comment.affected_elements = list(mapping.selected)
             self.audit.write("drawing_analyzer", "mapping",
-                             params={"comment_id": comment.comment_id},
+                             params={"comment_id": comment.comment_id, "adapter": scope.adapter_name},
                              result=mapping.resolution.value)
 
-    def _plan(self, context: ProjectContext, baseline: dict[str, str],
-              blocked: set[str] | None = None) -> dict[str, PlanProposal]:
-        planner = Planner(self.driver, self.ledger, baseline, self.threshold, self.m)
-        blocked = blocked or set()
+    def _plan(self, context: ProjectContext, scope: OpenSource, comment_ids: set[str],
+              baseline: dict[str, str]) -> dict[str, PlanProposal]:
+        planner = Planner(scope.driver, self.ledger, baseline, self.threshold, self.m)
         proposals: dict[str, PlanProposal] = {}
         for comment in context.municipal_comments:
-            if comment.comment_id in blocked:
-                # Routed to an adapter that cannot act; already an open item.
+            if comment.comment_id not in comment_ids:
                 continue
             mapping = context.mapping(comment.comment_id)
             proposal = planner.plan_for(comment, mapping)
@@ -401,9 +456,9 @@ class Orchestrator:
     # ------------------------------------------------------------------
     # steps 9-10
     # ------------------------------------------------------------------
-    def _decide_and_execute(self, context: ProjectContext, proposals: dict[str, PlanProposal],
-                            baseline: dict[str, str]):
-        executor = ExecutionAgent(self.driver, self.audit)
+    def _decide_and_execute(self, context: ProjectContext, scope: OpenSource,
+                            proposals: dict[str, PlanProposal], baseline: dict[str, str]):
+        executor = ExecutionAgent(scope.driver, self.audit)
         changes: list[ChangeRecord] = []
         decisions: list[Decision] = []
         consulted: set[str] = set()
@@ -470,6 +525,7 @@ class Orchestrator:
             plan.status = "applied"
             for change in result.changes:
                 change.comment_id = comment_id
+                change.adapter = scope.adapter_name
             changes.extend(result.changes)
         return changes, decisions, consulted
 
@@ -515,6 +571,53 @@ class Orchestrator:
         return ""
 
     # ------------------------------------------------------------------
+    def _merge_validations(self, context: ProjectContext,
+                          validations: list[tuple[OpenSource, ValidationResult]],
+                          routings: dict[str, Routing]) -> ValidationResult:
+        """One validation result for the whole run, from one per source.
+
+        Each source validated only the comments routed to it, against its own
+        driver - so a comment answered in a DWG is never marked unresolved
+        because it could not be measured through Revit. Constraints and
+        drawing checks are unioned across sources; a comment nobody could
+        reach (no adapter available, or no source at all) still gets an
+        honest entry instead of silently vanishing from the count.
+        """
+        merged = ValidationResult(version=validations[0][1].version if validations
+                                  else self.versions.next_version())
+        covered: set[str] = set()
+        constraints_by_id: dict[str, object] = {}
+        for scope, partial in validations:
+            merged.comments.extend(partial.comments)
+            covered.update(item.comment_id for item in partial.comments)
+            for constraint in partial.constraints:
+                existing = constraints_by_id.get(constraint.constraint_id)
+                if existing is None or (existing.status == "not_evaluated"
+                                        and constraint.status != "not_evaluated"):
+                    constraints_by_id[constraint.constraint_id] = constraint
+            prefix = f"{scope.adapter_name}: " if len(validations) > 1 else ""
+            merged.drawing_checks.extend(
+                {**check, "check": prefix + check["check"]} for check in partial.drawing_checks)
+            merged.regressions.extend(partial.regressions)
+        merged.constraints = list(constraints_by_id.values())
+        for comment in context.municipal_comments:
+            if comment.comment_id in covered:
+                continue
+            merged.comments.append(self._unroutable_comment_validation(
+                comment, routings.get(comment.comment_id)))
+        merged.result = ValidationAgent._verdict(merged)
+        return merged
+
+    def _unroutable_comment_validation(self, comment, routing: Routing | None) -> CommentValidation:
+        """A comment no open, editable source could ever measure."""
+        if comment.required_action == "none":
+            return CommentValidation(comment.comment_id, CommentStatus.NOT_APPLICABLE,
+                                     note=self.m.t("v_statement_only"))
+        reason = (routing.reason if routing and routing.reason else self.m.t("r_no_model"))
+        return CommentValidation(comment.comment_id, CommentStatus.REQUIRES_HUMAN_REVIEW,
+                                 note=reason)
+
+    # ------------------------------------------------------------------
     # versioning and artefacts
     # ------------------------------------------------------------------
     def _store_parent_version(self, context: ProjectContext) -> str:
@@ -535,8 +638,19 @@ class Orchestrator:
         self.audit.write("orchestrator", "version_written", result=record.version)
         return version
 
-    def _store_new_version(self, context: ProjectContext, result: RunResult, parent: str) -> str:
+    def _store_new_version(self, context: ProjectContext, result: RunResult, parent: str,
+                           scopes: list[OpenSource] | None = None) -> str:
         version = self.versions.next_version()
+        secondary_sources = []
+        for scope in scopes or []:
+            if scope.driver is self.driver:
+                continue  # the primary is versioned authoritatively, below
+            try:
+                model = scope.driver.plan_model()
+            except DrawingAPIError:
+                continue
+            secondary_sources.append(self.versions.snapshot_secondary(
+                version, scope.adapter_name, model))
         manifest = VersionManifest(
             version=version,
             parent_version=parent,
@@ -546,6 +660,7 @@ class Orchestrator:
             source_sha256=self._source_entry.sha256 if self._source_entry else "",
             comment_ids=[c.comment_id for c in context.municipal_comments],
             decisions=[d.decision_id for d in result.decisions],
+            secondary_sources=secondary_sources,
         )
         record = self.versions.create(self.driver, manifest, result.changes)
         audit_copy = record.directory / "audit.jsonl"
@@ -554,8 +669,9 @@ class Orchestrator:
         self.audit.write("orchestrator", "version_written", result=version)
         return version
 
-    def _write_artefacts(self, context: ProjectContext, result: RunResult,
-                         parent: str, baseline: dict[str, str] | None = None) -> dict[str, str]:
+    def _write_artefacts(self, context: ProjectContext, result: RunResult, parent: str,
+                         scopes: list[OpenSource] | None = None,
+                         baseline: dict[str, str] | None = None) -> dict[str, str]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         change_map = preview_module.build_change_map(result.changes, result.impact,
                                                      result.validation)
@@ -563,13 +679,15 @@ class Orchestrator:
         after_model = self.driver.plan_model()
         files = preview_module.write_previews(self.output_dir, before_model, after_model,
                                               change_map, result.version, self.m)
+        touched_names = {scope.adapter_name for scope in (scopes or []) if scope.driver is not None}
+        sources = [entry for entry in context.sources
+                  if entry.get("adapter") in touched_names] or context.sources[:1]
         result.change_set = changeset.build(
             result.changes, before_model, after_model, result.version or "", parent,
             context.municipal_comments, result.validation, run_id=self.run_id,
-            source=context.sources[0] if context.sources else {},
-            baseline=baseline, messages=self.m)
+            sources=sources, baseline=baseline, messages=self.m)
         files["change_set"] = str(changeset.write(self.output_dir, result.change_set))
-        self._highlight(result.change_set["highlight"])
+        self._highlight(result.change_set["highlight_by_source"], scopes or [])
         context_path = self.output_dir / "project_context.json"
         context_path.write_text(context.to_json() + "\n", encoding="utf-8")
         files["project_context"] = str(context_path)
@@ -587,18 +705,24 @@ class Orchestrator:
             files["consultation"] = str(transcript)
         return files
 
-    def _highlight(self, element_ids: list[str]) -> None:
-        """Ask a live host to select what changed, so the architect sees it.
+    def _highlight(self, highlight_by_source: dict[str, list[str]],
+                   scopes: list[OpenSource]) -> None:
+        """Ask every live host that changed to select what changed in it.
 
-        A host that cannot do it says so and the run carries on: highlighting is
-        a courtesy, and the change set is the artefact that matters.
+        One call per tool, each with only the ids that are its own - a host
+        must never be asked to select an id it did not report. A host that
+        cannot do it says so and the run carries on: highlighting is a
+        courtesy, and the change set is the artefact that matters.
         """
-        if not element_ids or not hasattr(self.driver, "highlight"):
-            return
-        try:
-            self.driver.highlight(element_ids)
-        except DrawingAPIError as error:
-            self.audit.write("orchestrator", "highlight_skipped", result=str(error))
+        for scope in scopes:
+            element_ids = highlight_by_source.get(scope.adapter_name)
+            if not element_ids or not hasattr(scope.driver, "highlight"):
+                continue
+            try:
+                scope.driver.highlight(element_ids)
+            except DrawingAPIError as error:
+                self.audit.write("orchestrator", "highlight_skipped",
+                                 params={"adapter": scope.adapter_name}, result=str(error))
 
     def _record_open_items(self, context: ProjectContext, result: RunResult) -> None:
         validation = result.validation
@@ -673,7 +797,6 @@ class Orchestrator:
         constraints_from_comments(context.municipal_comments, self.ledger)
         context.planning_constraints = self.ledger.all
         validation = ValidationResult(version="markup")
-        from .models import CommentValidation
         for comment in context.municipal_comments:
             status = (CommentStatus.NOT_APPLICABLE if comment.required_action == "none"
                       else CommentStatus.REQUIRES_HUMAN_REVIEW)

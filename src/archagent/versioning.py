@@ -80,6 +80,22 @@ class VersionStore:
         return VersionRecord(version, directory, model_path, manifest_path,
                              directory / "audit.jsonl", manifest)
 
+    def snapshot_secondary(self, version: str, adapter_name: str, model: dict) -> dict:
+        """A reference snapshot of another live source this run also touched.
+
+        Only the primary architectural source is versioned authoritatively via
+        :meth:`create` (SKILL.md 16, ``save_as``): a second live tool - a DWG in
+        AutoCAD, say - owns its own document and its own save; Archagent does
+        not manage that file's versioning on the tool's behalf. This snapshot
+        exists so the change set and a reviewer can see what that source looked
+        like at this version without reaching back into the live document.
+        """
+        directory = self.directory(version)
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"project_{version}_{adapter_name}.json"
+        path.write_text(json.dumps(model, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return {"adapter": adapter_name, "path": str(path), "sha256": sha256_file(path)}
+
     def load_manifest(self, version: str) -> VersionManifest:
         path = self.directory(version) / "version.json"
         if not path.exists():

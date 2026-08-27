@@ -43,6 +43,10 @@ def _source_summary(source: dict | None) -> dict:
             "document": detail.get("document", ""), "host": detail.get("host", "")}
 
 
+def _sources_summary(sources: list[dict] | None) -> list[dict]:
+    return [_source_summary(source) for source in (sources or [])]
+
+
 def _index(model: dict) -> dict[str, dict]:
     return {element["id"]: element for element in (model or {}).get("elements", [])}
 
@@ -67,18 +71,27 @@ def _geometry_delta(before: dict | None, after: dict | None) -> dict:
 def build(changes: list[ChangeRecord], before_model: dict, after_model: dict,
           version: str, parent_version: str, comments: list[MunicipalComment],
           validation: ValidationResult | None = None, run_id: str = "",
-          source: dict | None = None, baseline: dict | None = None,
+          source: dict | None = None, sources: list[dict] | None = None,
+          baseline: dict | None = None,
           messages: Messages | None = None) -> dict:
-    """Assemble the change set. Pure: it reads, it does not measure or write."""
+    """Assemble the change set. Pure: it reads, it does not measure or write.
+
+    ``before_model``/``after_model`` are the primary architectural source, so
+    the geometry delta and the spatial preview stay meaningful; a change made
+    in a second live tool (a DWG, say) still gets its full before/after per
+    property from ``changes`` - only the geometry delta is unavailable for it.
+    """
     m = messages or DEFAULT_MESSAGES
     before_index, after_index = _index(before_model), _index(after_model)
     by_comment = {comment.comment_id: comment for comment in comments}
+    multi_source = len({change.adapter for change in changes if change.adapter}) > 1
 
     elements: dict[str, dict] = {}
     for change in changes:
         entry = elements.setdefault(change.element_id, {
             "element_id": change.element_id,
             "kind": change.kind,
+            "adapter": change.adapter,
             "label": (after_index.get(change.element_id)
                       or before_index.get(change.element_id) or {}).get("label", ""),
             "category": (after_index.get(change.element_id)
@@ -102,6 +115,12 @@ def build(changes: list[ChangeRecord], before_model: dict, after_model: dict,
             if value and value not in entry[key]:
                 entry[key].append(value)
 
+    # Grouped by adapter as well as flat: a live host is asked to select only
+    # the elements that are actually its own, one call per tool.
+    highlight_by_source: dict[str, list[str]] = {}
+    for element_id, entry in elements.items():
+        highlight_by_source.setdefault(entry["adapter"] or "", []).append(element_id)
+
     document: dict[str, Any] = {
         "change_set_version": CHANGE_SET_VERSION,
         "run_id": run_id,
@@ -109,7 +128,10 @@ def build(changes: list[ChangeRecord], before_model: dict, after_model: dict,
         "version": version,
         "parent_version": parent_version,
         "language": m.code,
-        "source": _source_summary(source),
+        "source": _source_summary(source or (sources[0] if sources else None)),
+        "sources": _sources_summary(sources if sources is not None else
+                                    ([source] if source else [])),
+        "multi_source": multi_source,
         "counts": {
             "elements": len(elements),
             "changes": len(changes),
@@ -119,6 +141,7 @@ def build(changes: list[ChangeRecord], before_model: dict, after_model: dict,
         # The ids a host is asked to select. Named separately because that is
         # the one thing a CAD tool consumes without parsing the rest.
         "highlight": list(elements),
+        "highlight_by_source": highlight_by_source,
         "by_comment": [],
         "constraints": [],
     }

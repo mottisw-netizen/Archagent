@@ -353,6 +353,9 @@ class ChangeRecord(Serialisable):
     tool: str = ""
     sheet: str = ""
     kind: str = "modified"  # modified | created | removed | schedule
+    #: Which adapter made this change - "" for a single-source run, the
+    #: adapter name (e.g. "revit", "dwg") once a run touches more than one.
+    adapter: str = ""
 
 
 @dataclass
@@ -423,6 +426,9 @@ class VersionManifest(Serialisable):
     comment_ids: list[str] = field(default_factory=list)
     decisions: list[str] = field(default_factory=list)
     created_by: str = "municipal-permit-review v1.0"
+    #: Other live sources this run also edited - each a reference JSON
+    #: snapshot, not an authoritative save (that source owns its own file).
+    secondary_sources: list[dict] = field(default_factory=list)
 
 
 @dataclass

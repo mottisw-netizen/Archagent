@@ -923,6 +923,7 @@ Rules:
 - A comment routed to an unavailable adapter becomes an **open item with that reason**. It does not fall through to the architectural model, and it does not disappear.
 - Discipline comes from the department that wrote the comment; the *source* comes from which open drawing actually contains the element it names.
 - Adding a CAD tool is adding an adapter. Nothing above the adapter layer - planner, constraint engine, validator, report - may change.
+- Routing decides *where* a comment belongs; **execution follows it there**. A single run maps, plans, simulates and executes against every source that has work routed to it - not only the primary architectural source - so a run that touches Revit and a live DWG edits both. Each source is validated against its own driver, so a comment answered in one tool is never marked unresolved for want of a measurement through another. The dependency graph, the constraint ledger's evaluation and the change set are merged into one report across every source the run touched.
 
 ### 12.3 Live hosts
 

@@ -158,6 +158,24 @@ def _related_elements(driver: DrawingDriver, element_id: str) -> list[tuple[str,
     return related
 
 
+def merge_graphs(graphs: list[DependencyGraph]) -> DependencyGraph:
+    """Combine one graph per source into the single graph a run reports.
+
+    Each source's graph was built against its own driver, so an element node
+    from one never collides with another's - ids are the host's own stable
+    ids. Merging is just union: nodes by id, edges by value.
+    """
+    merged = DependencyGraph()
+    for graph in graphs:
+        for node_id, node in graph.nodes.items():
+            merged.nodes.setdefault(node_id, node)
+        for edge in graph.edges:
+            if edge not in merged.edges:
+                merged.edges.append(edge)
+        merged.truncated = merged.truncated or graph.truncated
+    return merged
+
+
 def impact_set(graph: DependencyGraph, plans: list[CorrectionPlan]) -> list[str]:
     """Every element reachable from a change; all of it is re-validated."""
     impacted: list[str] = []
