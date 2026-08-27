@@ -41,6 +41,23 @@ def test_site_relations_match_spec_examples():
 # ----------------------------------------------------------------------
 # elevation graph / slope (spec §11)
 # ----------------------------------------------------------------------
+def test_cross_section_profile_gives_station_and_elevation():
+    graph = ElevationGraph()
+    graph.add(ElevationPoint("road_level", x=0, y=0, z=100.0, source="survey"))
+    graph.add(ElevationPoint("curb_level", x=1, y=0, z=99.85, source="survey"))
+    graph.add(ElevationPoint("sidewalk_level", x=2.5, y=0, z=99.9, source="survey"))
+
+    profile = graph.cross_section()
+    assert [p.label for p in profile] == ["road_level", "curb_level", "sidewalk_level"]
+    assert [p.station for p in profile] == [0.0, 1.0, 2.5]
+    assert [p.elevation for p in profile] == [100.0, 99.85, 99.9]
+    assert profile[1].source == "survey"
+
+
+def test_cross_section_of_empty_graph_is_empty():
+    assert ElevationGraph().cross_section() == []
+
+
 def test_elevation_chain_slope_matches_road_to_basement_ramp():
     graph = ElevationGraph()
     graph.add(ElevationPoint("road_level", x=0, y=0, z=100.0, source="survey"))

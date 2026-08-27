@@ -16,7 +16,7 @@ from .drainage import (
     validate_flow_direction,
     validate_municipal_line_setback,
 )
-from .elevations import ElevationGraph, ElevationPoint, SlopeResult
+from .elevations import CrossSectionPoint, ElevationGraph, ElevationPoint, SlopeResult
 from .roads import (
     Curb,
     Pipe,
@@ -31,8 +31,8 @@ from .topology import SiteElement, SiteRelation, SiteTopology
 from .trees import Tree, validate_preservation_radius
 
 __all__ = [
-    "Curb", "DrainageEdge", "DrainageNetwork", "DrainageNode", "ElevationGraph",
-    "chamber_volume",
+    "Curb", "CrossSectionPoint", "DrainageEdge", "DrainageNetwork", "DrainageNode",
+    "ElevationGraph", "chamber_volume",
     "ElevationPoint", "Pipe", "Road", "Sidewalk", "SiteElement", "SiteRelation",
     "SiteTopology", "SlopeResult", "Surface", "Tree", "pipe_slope",
     "validate_capacity_evidence", "validate_coverage", "validate_curb_height",

@@ -37,6 +37,17 @@ class SlopeResult(Serialisable):
     basis: str = ""
 
 
+@dataclass
+class CrossSectionPoint(Serialisable):
+    """One station along a longitudinal profile - cumulative horizontal
+    distance from the chain's start, paired with elevation."""
+
+    label: str
+    station: float
+    elevation: float
+    source: str = ""
+
+
 class ElevationGraph:
     """A chain of :class:`ElevationPoint`, in downstream order.
 
@@ -69,3 +80,21 @@ class ElevationGraph:
         """The slope of every consecutive pair in insertion order."""
         return [self.slope(self.order[i], self.order[i + 1])
                 for i in range(len(self.order) - 1)]
+
+    def cross_section(self) -> list[CrossSectionPoint]:
+        """The chain as a longitudinal profile - station (cumulative
+        horizontal distance from the first point) vs elevation - exactly
+        what a cross-section plot needs, computed from the same points
+        :meth:`chain_slopes` already uses. An empty or single-point graph
+        gives a profile of zero or one station, never an error."""
+        points: list[CrossSectionPoint] = []
+        station = 0.0
+        previous: ElevationPoint | None = None
+        for label in self.order:
+            point = self.points[label]
+            if previous is not None:
+                station += math.hypot(point.x - previous.x, point.y - previous.y)
+            points.append(CrossSectionPoint(label=label, station=round(station, 3),
+                                            elevation=point.z, source=point.source))
+            previous = point
+        return points

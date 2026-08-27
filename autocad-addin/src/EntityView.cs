@@ -53,6 +53,15 @@ namespace Archagent.Acad
             ("DIM", "dimension"),
             ("TEXT", "text"), ("ANNO", "text"),
             ("SITE", "site"), ("PROP", "site"),
+            // roads/drainage/landscape (Petah Tikva spec §9-14) - kept in
+            // sync with archagent.drawing.dxf_model.LAYER_CATEGORIES (Python).
+            // Specific keywords before general ones: a layer named
+            // "C-DRAIN-MUNI" must resolve to municipal_drain, not the more
+            // generic drainage_pipe that "DRAIN" alone would give it.
+            ("MUNI", "municipal_drain"), ("CHAMBER", "drainage_chamber"),
+            ("MANHOLE", "catch_basin"), ("DRAIN", "drainage_pipe"), ("CURB", "curb"),
+            ("RAMP", "ramp"), ("TREE", "tree"), ("PLNT", "landscape_zone"),
+            ("PLANT", "landscape_zone"),
         };
 
         public static string CategoryOf(Entity entity)

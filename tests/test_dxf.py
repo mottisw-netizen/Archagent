@@ -60,6 +60,38 @@ def test_layer_name_gives_a_category_with_no_tagging_at_all(tmp_path):
     assert model["elements"][0]["type"] == "building"
 
 
+@pytest.mark.parametrize("layer,expected_type", [
+    ("C-DRAIN-MUNI", "municipal_drain"),
+    ("C-DRAIN-CHAMBER", "drainage_chamber"),
+    ("C-DRAIN-MANHOLE", "catch_basin"),
+    ("C-DRAIN-PIPE", "drainage_pipe"),
+    ("C-CURB", "curb"),
+    ("A-RAMP", "ramp"),
+    ("L-TREE", "tree"),
+    ("L-PLNT", "landscape_zone"),
+])
+def test_civil_and_landscape_layer_names_resolve_to_semantic_types(tmp_path, layer, expected_type):
+    doc = ezdxf.new("R2018")
+    doc.modelspace().add_lwpolyline(
+        [(0, 0), (1, 0), (1, 1), (0, 1)], close=True, dxfattribs={"layer": layer})
+    path = tmp_path / "civil.dxf"
+    doc.saveas(path)
+    _, model = read_dxf(path)
+    assert model["elements"][0]["type"] == expected_type
+
+
+def test_municipal_drain_keyword_wins_over_the_more_generic_drain_keyword(tmp_path):
+    """LAYER_CATEGORIES checks entries in order - MUNI must be listed before
+    the more general DRAIN so a combined layer name still resolves specifically."""
+    doc = ezdxf.new("R2018")
+    doc.modelspace().add_lwpolyline(
+        [(0, 0), (1, 0), (1, 1), (0, 1)], close=True, dxfattribs={"layer": "C-DRAIN-MUNI-LINE"})
+    path = tmp_path / "civil.dxf"
+    doc.saveas(path)
+    _, model = read_dxf(path)
+    assert model["elements"][0]["type"] == "municipal_drain"
+
+
 def test_xdata_tag_overrides_the_layer_guess(dxf_file):
     path, p11, p12, dim = dxf_file
     _, model = read_dxf(path)
