@@ -23,5 +23,10 @@ services:
     restart: unless-stopped
 
 volumes:
+  # Pinned names (not Compose's default project-prefixed name) so the exact
+  # `docker volume rm archagent-claude-auth` in DOCKER.md works the same way
+  # whether Archagent was started via Compose or plain run.sh/run.bat.
   archagent-data:
+    name: archagent-data
   archagent-claude-auth:
+    name: archagent-claude-auth

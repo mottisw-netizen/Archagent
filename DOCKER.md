@@ -126,10 +126,11 @@ subscription authenticates through your browser instead:
    authenticates as you, through your subscription, with no key stored
    anywhere in the image or in plaintext on disk.
 
-To start over with a fresh login (e.g. switching accounts), remove the
-volume: `docker volume rm archagent-claude-auth` (Compose) or
-`docker volume rm archagent-claude-auth` after `docker rm -f archagent` (plain
-`run.sh`/`run.bat`) - then repeat the steps above.
+To start over with a fresh login (e.g. switching accounts), stop the
+container (`docker compose down`, or `docker rm -f archagent` for plain
+`run.sh`/`run.bat`) and remove the volume - `docker volume rm
+archagent-claude-auth` - then repeat the steps above. The name is pinned in
+`docker-compose.yml`, so this is the same command either way.
 
 ## What's inside, and what isn't
 
