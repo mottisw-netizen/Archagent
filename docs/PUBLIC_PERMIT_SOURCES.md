@@ -149,6 +149,54 @@ Archagent use: same shape as רישוי זמין above - real and specific to th
                professional credential, not scrapeable as "public research".
 ```
 
+## Petah Tikva municipality - "צפייה בבקשות והיתרים" (view permit requests/decisions)
+
+```
+Source:        מנהל ההנדסה פתח תקוה - Requests/Permits viewer
+Authority:     Petah Tikva municipality, Engineering Directorate
+Public URL:    https://www.petah-tikva.muni.il/Engineering/Information_and_
+               operations/Pages/RequestsPermits.aspx
+Access method: unknown from this session - see limitation below
+Auth required: unknown from this session
+Document types: unknown - the name and the owner's own description ("בקשות
+               להיתר שאתה יכול להיכנס אליהם") suggest real, viewable permit
+               request/decision records, exactly the Phase 3 corpus target
+Restrictions:  ***this session's network egress policy blocks the entire
+               petah-tikva.muni.il domain*** - confirmed two ways: the
+               WebFetch tool returned EGRESS_BLOCKED, and a direct `curl`
+               through this session's own configured egress proxy got
+               "CONNECT tunnel failed, response 403" (the same class of
+               organization-policy denial this session hit earlier trying
+               to reach Docker Hub - see the git history around the Docker
+               changes). This is categorical, not rate-related: the block
+               happens before a single request reaches the site, so "go
+               slowly" cannot work around it from this session no matter
+               how careful the pacing is.
+Archagent use: the most promising real source found so far - real,
+               specific, and the project owner has already pointed at it as
+               something I can access. Blocked purely by *this session's*
+               environment, not by the source itself. See the note below on
+               how to actually unblock this.
+```
+
+**On the domain block**: per this session's own operating rules, a 403/407
+egress denial is an organization policy decision to report, not to route
+around (no DNS tricks, no alternate hosts, no fetching through a third-party
+mirror) - so this was not pursued further once confirmed. Two ways forward
+that don't require bypassing anything:
+
+1. Run this specific research step (browsing `RequestsPermits.aspx`,
+   pulling real permit case records at a careful, human pace) from a Claude
+   Code environment whose network policy actually allows general web
+   access - a local session, or a cloud environment created with a more
+   permissive egress setting (`https://code.claude.com/docs/en/claude-code-on-the-web`
+   documents how that policy is chosen per environment).
+2. The project owner (or anyone with access) opens specific real permit
+   cases in a browser themselves and hands the pages/PDFs directly to this
+   session as files - Phase 1's third allowed source
+   ("documents explicitly provided or authorized by the user") - which
+   sidesteps the network question entirely and can start Phase 3 today.
+
 ---
 
 ## What Phase 2 actually concludes
