@@ -54,6 +54,10 @@ class DrawingDriver(abc.ABC):
 
     name = "abstract"
     read_only = False
+    #: The filename suffix a version of this driver's model is saved with -
+    #: read by ``VersionStore`` so ``save_as`` gets a path in the driver's own
+    #: native format instead of always ".json".
+    preferred_suffix = ".json"
 
     def __init__(self) -> None:
         self._plan_id: str | None = None

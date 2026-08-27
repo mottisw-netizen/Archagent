@@ -253,6 +253,9 @@ class Orchestrator:
         if self.driver is not None:
             first = next(entry for entry in self.workspace.opened if entry.driver is self.driver)
             context.source_format = first.adapter_name.upper()
+            # A version is saved in the primary driver's own format, not
+            # always ".json" - the DXF adapter versions as .dxf, for one.
+            self.versions.model_suffix = getattr(self.driver, "preferred_suffix", ".json")
             context.drawing_elements = getattr(self.driver, "elements", list)()
             if first.source.kind == "host":
                 # A live host owns the document; the run edits it in place and
@@ -675,7 +678,7 @@ class Orchestrator:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         change_map = preview_module.build_change_map(result.changes, result.impact,
                                                      result.validation)
-        before_model = json.loads(self.versions.model_path(parent).read_text(encoding="utf-8"))
+        before_model = _load_model_dict(self.versions.model_path(parent))
         after_model = self.driver.plan_model()
         files = preview_module.write_previews(self.output_dir, before_model, after_model,
                                               change_map, result.version, self.m)
@@ -819,3 +822,15 @@ class Orchestrator:
         result.files["correction_report"] = str(report_path)
         self.audit.write("orchestrator", "run_complete", result="markup_only")
         return result
+
+
+def _load_model_dict(path: Path) -> dict:
+    """Read a saved version's model as a plain dict, whatever format the
+    driver that saved it prefers - JSON needs no help; a DXF version is
+    re-parsed the same way :class:`~.drawing.dxf_model.DxfModelDriver` parses
+    a source file, since ``before``/``after`` deltas and previews only ever
+    need the model shape, not a live document."""
+    if path.suffix == ".dxf":
+        from .drawing.dxf_model import read_dxf
+        return read_dxf(path)[1]
+    return json.loads(path.read_text(encoding="utf-8"))

@@ -105,12 +105,18 @@ def test_an_unreachable_revit_names_what_is_missing():
 
 
 def test_a_bare_dwg_file_states_what_it_needs_instead_of_pretending():
-    """No live document to edit or get approval against - same reasoning as Revit."""
+    """No ODA File Converter here, so a .dwg (not .dxf) says exactly what's missing."""
     status = DwgAdapter().status(SourceRef.parse("traffic.dwg"))
     assert not status.available
-    assert "AutoCAD" in status.reason and "live document" in status.reason
+    assert "File Converter" in status.reason
     with pytest.raises(AdapterUnavailable):
         DwgAdapter().open(SourceRef.parse("traffic.dwg"))
+
+
+def test_a_dwf_file_is_view_only_and_stays_declared():
+    """A DWF has no live, editable document behind it - never claim edit on one."""
+    status = DwgAdapter().status(SourceRef.parse("issued_set.dwfx"))
+    assert not status.available and "publish/view format" in status.reason
 
 
 def test_an_unreachable_autocad_host_names_what_is_missing():

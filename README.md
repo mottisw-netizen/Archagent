@@ -272,7 +272,7 @@ one municipal comment is routed to whichever adapter holds the element it names.
 | --- | --- | --- | --- |
 | `revit` | architecture, structure, accessibility, fire | read, measure, edit, preview, version | live, over the add-in |
 | `json` | architecture, traffic | read, measure, edit, preview, version | the reference driver |
-| `dwg` | traffic, roads, drainage, landscape | read, measure, edit, preview, version | live, over the add-in (AutoCAD/Civil 3D) - a bare file is still declared, not implemented |
+| `dwg` | traffic, roads, drainage, landscape | read, measure, edit, preview, version | live over the add-in, **or** headless over a plain `.dxf` file - no CAD seat needed either way |
 | `pdf` | documents, environment | read, markup | never edits a document |
 
 An adapter that cannot serve a source says exactly what is missing, and the
@@ -359,6 +359,34 @@ archagent run project --source revit://127.0.0.1:8735 --source autocad://127.0.0
 
 A single run against two live mock hosts, addressed as `revit://` and
 `autocad://`, edits both and merges the result; the tests assert it too.
+
+### DWG/DXF with no CAD seat at all
+
+`DwgAdapter` also opens a **plain file**, no AutoCAD or add-in running
+anywhere - the path for a reviewer on Linux with a consultant's DXF and
+nothing else:
+
+```bash
+pip install -e ".[dxf]"          # ezdxf - MIT licence, pure Python
+archagent run project --source project/traffic.dxf
+```
+
+A `.dxf` needs nothing beyond that. A `.dwg` needs converting to DXF first,
+with the free [ODA File Converter](https://www.opendesign.com/guestfiles/oda_file_converter)
+on `PATH` - run as a separate process and never bundled, the same posture as
+calling `pdftotext` for PDF comment text; without it a `.dwg` source is
+reported as unavailable with that exact reason, not silently degraded.
+`archagent.drawing.dxf_model.DxfModelDriver` parses the file into the same
+model shape `JSONModelDriver` already uses and then *is* one - every query,
+measurement and mutation is the reference implementation, unchanged; only
+parsing the file in and writing the result back out as real DXF entities is
+new. A `.dwf`/`.dwfx` stays declared: it is Autodesk's fixed publish/view
+format, with no live document behind it to edit.
+
+**GPL note.** LibreDWG (GPL) was the obvious first choice for this and was
+deliberately not used: linking a GPL library into a paid product forces the
+whole codebase under GPL. ezdxf (MIT) plus the ODA File Converter as an
+external, unbundled process avoids that entirely.
 
 ### The Diff / Change Set
 

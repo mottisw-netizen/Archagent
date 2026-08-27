@@ -941,6 +941,10 @@ The wire contract is defined in one place and mirrored by every host. It carries
 - Creating elements is refused by a live host: a new element needs a family, a type, a level and a host object - decisions belonging to the architect. The agent reports the need instead of inventing geometry.
 - One endpoint changes the view rather than the document: highlighting the change set in the host's own UI (§13.3). It needs no transaction and no plan, and it must not be able to alter the model.
 
+### 12.4 Headless files: no CAD seat at all
+
+Not every reviewer has Revit or AutoCAD, and a live host is not the only way an adapter can be real. A ``.dxf`` file opens and edits directly, with an open-source library (ezdxf, MIT), no add-in and nothing running - the adapter parses it into the same model shape a live driver returns, applies the plan to that model exactly as any other source does, and writes real entities back on save. A ``.dwg`` needs converting to DXF first, with a free but non-open-source converter run as a separate, unbundled process (the same posture as the PDF text extractor of §3.3) - stated as a requirement, not silently degraded, when it is missing. A GPL library is never linked in for this: it would force the whole product under GPL, which is incompatible with licensing the product commercially.
+
 ---
 
 ## 13. Preview and Highlight System
