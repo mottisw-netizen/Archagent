@@ -63,6 +63,30 @@ wrong number.
 | Development within plot boundary | boolean | **Local** (trivial) | Not a sourceable "regulation number" - a structural constraint, not a statute citation. |
 | Municipal drainage setback | ≥ 2.0 m from an existing line | **Local** | Infrastructure protection distances are set per the specific drainage authority/infrastructure plan, not a national statute - correctly project-specific. |
 
+## Drainage / sanitation piping
+
+| Parameter | Current value | Verdict | Source |
+|---|---|---|---|
+| Drainage pipe minimum slope | not implemented (`archagent.site.roads.pipe_slope` only derives a slope from invert levels; no default to check it against) | National, not wired | תקנות התכנון והבנייה (תכן הבנייה) (תברואה), תש"ף-2019 requires horizontal drains to slope enough for proper flow "per תקן ישראלי 1205"; ת"י 4397 (stormwater drainage systems) separately sets minimum slopes as a function of pipe diameter and internal roughness. Both are real, current regulations - but like ת"י 1918 for parking, the actual slope table lives inside a paid Standards Institution (SII) document, not the freely-published regulation text, so no specific number was fabricated here. |
+| Sub-surface pipe installation generally | not implemented | National, not wired | ת"י 1205 Part 2 - same paywall situation |
+| Municipal drainage line clearance | ≥ 2.0 m | **Local** (unchanged from before) | This is about keeping clear of an *existing* municipal line, not pipe design - no evidence found that this specific clearance distance is set nationally rather than per infrastructure authority/plan |
+
+**Structural note, same as the traffic module**: even where a slope number
+*is* eventually sourced, `Pipe`/`Curb`/`Sidewalk` in `archagent.site.roads`
+have the identical gap already named in `ARCHITECTURE_MAP.md` for
+`ParkingSpace`/`Ramp`/`TurningPath` - nothing in the real pipeline ever
+constructs one from a project's actual drawing model, so wiring a national
+default here needs that connection built first, not just the number.
+
+## Accessibility (additional findings beyond the ramp-slope figure above)
+
+| Parameter | Current value | Verdict | Source |
+|---|---|---|---|
+| Dropped curb (אבן שפה מונמכת) max transition slope | not implemented | National, not wired | ≤ 10%, per תקנות שוויון זכויות לאנשים עם מוגבלות (התאמות נגישות למקום ציבורי שאינו בניין), תשע"ד-2013. Real, freely-published figure - not wired because `archagent.site.roads.Curb` has a `height` field but no `slope` field to check it against; a schema gap, not a sourcing gap. |
+| Curb height at an accessible bus-stop boarding point | not implemented | National, not wired | ≥ 15 cm, same regulation - narrower in scope than the general `Curb.kind` values ("standard"/"dropped"/"mountable") currently modelled, so not force-fit into the existing schema. |
+| Max distance, accessible parking/route to main entrance | not implemented | National, not wired | 200 m generally, or 100 m where the accessible route's slope exceeds 5% - same regulation. This supersedes and corrects the vaguer "250 m, not yet traced" note from this survey's first pass above (parking table) - that number was an imprecise search-summary artifact; this is the actual, better-sourced figure. |
+| General accessible-route slope limits | 8% max already used for ramps (see above) | National, not wired | ת"י 1918 Part 2, sections 2.1-2.9, referenced directly by the 2013 regulation above - same SII paywall situation as the other ת"י references in this document. |
+
 ## Setbacks / building line (קו בניין)
 
 **Local by the nature of the law, not a research gap.** A building line is
@@ -75,13 +99,17 @@ authority profile, never from a core default - and that should stay true.
 
 ## Not yet surveyed
 
-Curb height, sidewalk width/slope bounds (beyond the accessibility ramp
-figure above), and road width (`archagent.site.roads`) were not researched
-in this pass - named here explicitly so the gap is visible rather than
-silently absent. Each `validate_*` function in `archagent.site.roads`
-already takes its threshold as a caller-supplied parameter with no default,
-the same pattern this whole survey has been checking - a follow-up pass
-should cover them the same way.
+General (non-accessibility-specific) sidewalk width and road width
+(`archagent.site.roads.Road`/`Sidewalk`) were still not researched in this
+pass - named here explicitly so the gap is visible rather than silently
+absent. Every `validate_*` function in `archagent.site.roads` already takes
+its threshold as a caller-supplied parameter with no default, the same
+pattern this whole survey has been checking - a follow-up pass should cover
+these the same way. Drainage and the additional accessibility figures above
+were added after the project owner pointed out drainage had been skipped
+rather than actually searched - a fair correction, and a reminder that
+"not yet surveyed" in this document means exactly that, not "checked and
+found nothing."
 
 ---
 
