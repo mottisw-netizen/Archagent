@@ -10,6 +10,13 @@ REM
 REM To connect to a Revit/AutoCAD add-in running on THIS SAME Windows machine,
 REM use revit://host.docker.internal:PORT in the web UI's CAD field, not
 REM 127.0.0.1 - see DOCKER.md for why.
+REM
+REM To use the "claude-code" engine with your Claude.ai (Pro/Max) subscription:
+REM once this is running, in another terminal run
+REM   docker exec -it archagent claude
+REM and complete the login prompt it shows the first time (choose the Claude.ai
+REM subscription option, then open the printed URL). The session is saved
+REM into the archagent-claude-auth volume, so you only do this once.
 
 setlocal
 cd /d "%~dp0"
@@ -37,6 +44,7 @@ docker run --rm -it ^
   --name %CONTAINER% ^
   -p %ARCHAGENT_PORT%:8000 ^
   -v archagent-data:/data/projects ^
+  -v archagent-claude-auth:/root/.claude ^
   -e ANTHROPIC_API_KEY=%ANTHROPIC_API_KEY% ^
   --add-host=host.docker.internal:host-gateway ^
   %IMAGE%

@@ -6,6 +6,12 @@ services:
       - "${ARCHAGENT_PORT:-8000}:8000"
     volumes:
       - archagent-data:/data/projects
+      # Where the `claude` CLI keeps its login (OAuth session from a Claude.ai
+      # Pro/Max subscription, or an API key if you authenticated that way
+      # instead) - mounted so `docker compose up` doesn't ask you to log in
+      # again every time the container restarts. See DOCKER.md for the
+      # one-time login step.
+      - archagent-claude-auth:/root/.claude
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     # Lets the container reach a Revit/AutoCAD add-in listening on the host
@@ -18,3 +24,4 @@ services:
 
 volumes:
   archagent-data:
+  archagent-claude-auth:

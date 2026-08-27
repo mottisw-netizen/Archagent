@@ -16,10 +16,12 @@ network policy blocks Docker Hub (`docker build` fails pulling the
 not a Dockerfile problem), so an end-to-end `docker build && docker run` could
 not be completed here. What *has* been verified:
 
-* every dependency the image installs (`fastapi`, `uvicorn`, `anthropic`,
-  `ezdxf`) is the exact same set already installed and exercised by the 236
-  tests passing in this repository - the Dockerfile does not introduce a new,
-  untested dependency;
+* every Python dependency the image installs (`fastapi`, `uvicorn`,
+  `anthropic`, `ezdxf`, `claude-agent-sdk`) is the exact same set already
+  installed and exercised by the tests passing in this repository - the
+  Dockerfile does not introduce a new, untested Python dependency. The `claude`
+  CLI itself (installed via `npm`) is a separate, prebuilt binary this repo
+  does not test - only that `docker build` installs it and puts it on PATH.
 * the Dockerfile was reviewed line by line against how `archagent-web` is
   actually invoked and configured (`ARCHAGENT_WORKSPACE`, `--host`/`--port`,
   `examples/` needing to sit next to `src/` for the bundled projects to
@@ -92,18 +94,51 @@ use that machine's real network address instead of `host.docker.internal`
 design, so it has to be reached from wherever it is actually running, and
 `host.docker.internal` only ever means "the machine hosting this container."
 
+## Connecting the "Claude Code" engine (your Claude.ai Pro/Max subscription)
+
+The web app's launch screen lets you pick which engine drives a run:
+**pipeline** (in-process, needs an Anthropic API key or runs rules-only with
+`--no-llm`) or **claude-code** (`web/engines.py: ClaudeCodeEngine`, drives the
+same pipeline through an actual Claude Code session). The image now installs
+the `claude` CLI itself (via `npm`, alongside the `claude-agent-sdk` Python
+package), so `claude-code` is available out of the box - it just needs to be
+logged in once, the same as installing Claude Code on a normal machine.
+
+You do **not** need an `ANTHROPIC_API_KEY` for this - a Claude.ai Pro/Max
+subscription authenticates through your browser instead:
+
+1. Start Archagent as usual (`./run.sh`, `run.bat`, or `docker compose up`).
+2. In a **second** terminal, open an interactive session inside the running
+   container:
+   ```bash
+   docker exec -it archagent claude
+   ```
+   (with Compose: `docker compose exec archagent claude`.)
+3. The CLI walks you through picking an auth method the first time - choose
+   the Claude.ai account / subscription option, not the API key option. It
+   prints a URL (and a code); open it in a browser on any device signed into
+   your Claude.ai account and approve it.
+4. Exit that session (`Ctrl+D` or `exit`). The login itself is saved under
+   `/root/.claude` inside the container, which is a separate named Docker
+   volume (`archagent-claude-auth`) - so it survives container restarts and
+   even `docker compose up --build` again. You only do this once per volume.
+5. Back in the web app, pick **claude-code** as the engine for a run - it now
+   authenticates as you, through your subscription, with no key stored
+   anywhere in the image or in plaintext on disk.
+
+To start over with a fresh login (e.g. switching accounts), remove the
+volume: `docker volume rm archagent-claude-auth` (Compose) or
+`docker volume rm archagent-claude-auth` after `docker rm -f archagent` (plain
+`run.sh`/`run.bat`) - then repeat the steps above.
+
 ## What's inside, and what isn't
 
 * Installed: the web app (`archagent-web`), the CLI, the JSON reference
-  driver, the headless DXF driver (`ezdxf`) - so a plain `.dxf` opens and
-  edits with nothing else installed, in the container or out of it.
+  driver, the headless DXF driver (`ezdxf`), and the `claude` CLI (Node-based,
+  via `npm`) for the "claude-code" engine - see the section above to log it
+  in. A plain `.dxf` opens and edits with nothing else installed, in the
+  container or out of it.
 * `poppler-utils` (`pdftotext`) for reading PDF municipal comments.
-* **Not installed**: the `claude` CLI (Node-based), so the "Claude Code"
-  engine is unavailable by default - the web app still runs fully on the
-  "pipeline" engine with an API key, and prints one line saying so at
-  startup. Add it yourself in a derived Dockerfile
-  (`RUN npm install -g @anthropic-ai/claude-code` plus a Node base image or
-  an added Node layer) if you want that engine too.
 * **Not installed**: the ODA File Converter, for a real `.dwg` (not `.dxf`)
   file source - it is free but not open source, so it is never bundled; a
   `.dwg` source reports that reason explicitly rather than failing

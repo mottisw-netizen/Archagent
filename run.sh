@@ -10,6 +10,13 @@
 # volume across restarts. To connect to a live Revit/AutoCAD add-in running
 # on THIS SAME machine, use revit://host.docker.internal:PORT in the web UI's
 # CAD field, not 127.0.0.1 - see DOCKER.md for why.
+#
+# To use the "claude-code" engine with your Claude.ai (Pro/Max) subscription:
+# once this is running, in another terminal run
+#   docker exec -it archagent claude
+# and complete the login prompt it shows the first time (choose the Claude.ai
+# subscription option, then open the printed URL). The session is saved into
+# the archagent-claude-auth volume, so you only do this once. See DOCKER.md.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
@@ -36,6 +43,7 @@ exec docker run --rm -it \
   --name "$CONTAINER" \
   -p "${PORT}:8000" \
   -v archagent-data:/data/projects \
+  -v archagent-claude-auth:/root/.claude \
   -e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}" \
   --add-host=host.docker.internal:host-gateway \
   "$IMAGE"

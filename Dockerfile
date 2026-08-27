@@ -15,9 +15,15 @@ LABEL org.opencontainers.image.title="Archagent" \
 # poppler-utils: pdftotext, for reading PDF municipal comments (ingest.py
 # shells out to it exactly like it would outside a container - no code
 # difference, just making sure the binary is on PATH).
+#
+# nodejs/npm: only to install the `claude` CLI below - the "claude-code"
+# engine (web/engines.py: ClaudeCodeEngine) shells out to it. Debian's own
+# packages are recent enough; this is not a build toolchain, just a runtime
+# for one global npm package.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends poppler-utils \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends poppler-utils nodejs npm \
+    && npm install -g @anthropic-ai/claude-code \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
 
 WORKDIR /app
 
@@ -25,12 +31,11 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 COPY examples ./examples
 
-# The claude-code engine additionally needs the `claude` CLI (Node-based) on
-# PATH; it is deliberately not installed here to keep the image small and
-# dependency-free by default. Without it the web app still runs fully on the
-# "pipeline" engine (LLM via API key) - it just prints a one-line notice and
-# disables the claude-code engine option. See DOCKER.md to add it.
-RUN pip install --no-cache-dir -e ".[web,llm,dxf]"
+# claude-code here only adds the `claude-agent-sdk` Python package - the
+# actual `claude` binary was installed above via npm. The CLI authenticates
+# itself (Claude.ai subscription login, or an API key) the first time it
+# runs; see DOCKER.md for how that survives a container restart.
+RUN pip install --no-cache-dir -e ".[web,llm,dxf,claude-code]"
 
 ENV ARCHAGENT_WORKSPACE=/data/projects
 RUN mkdir -p /data/projects
