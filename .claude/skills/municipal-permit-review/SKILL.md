@@ -910,7 +910,7 @@ The agent therefore never talks to a CAD program. It talks to an **adapter**, wh
 PlanningAgent
   └ Router            decides discipline + which open source holds the element
       ├ RevitAdapter      architecture, structure, accessibility, fire   read measure edit preview version
-      ├ DwgAdapter        traffic, roads, drainage, landscape            read markup      (AutoCAD / Civil 3D)
+      ├ DwgAdapter        traffic, roads, drainage, landscape            read measure edit preview version  (AutoCAD / Civil 3D, live)
       ├ JsonAdapter       the reference model                            read measure edit preview version
       └ PdfAdapter        documents, environment                         read markup      (never edits)
   └ ValidationEngine  measures the result through whichever adapter produced it

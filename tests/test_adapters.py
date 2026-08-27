@@ -16,7 +16,6 @@ from archagent.adapters import (
     ARCHITECTURE,
     DRAINAGE,
     EDIT,
-    MARKUP,
     TRAFFIC,
     AdapterRegistry,
     AdapterUnavailable,
@@ -105,13 +104,19 @@ def test_an_unreachable_revit_names_what_is_missing():
     assert not status.available and "Revit" in status.reason
 
 
-def test_the_dwg_adapter_states_what_it_needs_instead_of_pretending():
+def test_a_bare_dwg_file_states_what_it_needs_instead_of_pretending():
+    """No live document to edit or get approval against - same reasoning as Revit."""
     status = DwgAdapter().status(SourceRef.parse("traffic.dwg"))
     assert not status.available
-    assert "AutoCAD" in status.reason and "Design Automation" in status.reason
-    assert MARKUP in status.capabilities and EDIT not in status.capabilities
+    assert "AutoCAD" in status.reason and "live document" in status.reason
     with pytest.raises(AdapterUnavailable):
         DwgAdapter().open(SourceRef.parse("traffic.dwg"))
+
+
+def test_an_unreachable_autocad_host_names_what_is_missing():
+    status = DwgAdapter(f"http://127.0.0.1:{_free_port()}").status(
+        SourceRef.parse("autocad://127.0.0.1:1"))
+    assert not status.available and "Revit" not in status.reason
 
 
 def test_the_pdf_adapter_can_read_but_never_edit():
@@ -163,6 +168,27 @@ def test_the_architectural_model_is_the_primary_even_when_opened_second(project,
     finally:
         workspace.close()
         server.shutdown()
+
+
+def test_a_live_dwg_host_opens_the_same_way_a_live_revit_host_does(project, tmp_path):
+    """The wire protocol is shared - a second live tool is not a special case."""
+    model = tmp_path / "traffic.json"
+    shutil.copyfile(project / "source" / "project.json", model)
+    server = serve(model, port=_free_port())
+    try:
+        entry = Workspace(default_registry()).add(
+            SourceRef.parse(f"autocad://127.0.0.1:{server.server_address[1]}"))
+        assert entry.available and entry.adapter_name == "dwg"
+        assert entry.can_edit()
+        assert DRAINAGE in entry.disciplines and TRAFFIC in entry.disciplines
+    finally:
+        server.shutdown()
+
+
+def test_a_civil3d_url_reaches_the_same_dwg_adapter():
+    source = SourceRef.parse(f"civil3d://127.0.0.1:{_free_port()}")
+    assert source.options["host"] == "civil3d"
+    assert default_registry().for_source(source).name == "dwg"
 
 
 # ----------------------------------------------------------------------

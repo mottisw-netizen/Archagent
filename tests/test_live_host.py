@@ -20,6 +20,7 @@ from archagent.drawing.mock_host import MockHost, serve
 from archagent.drawing.revit import HostUnavailable, RevitDriver
 
 ADDIN = Path(__file__).resolve().parents[1] / "revit-addin"
+ADDINS = {"revit": ADDIN, "autocad": Path(__file__).resolve().parents[1] / "autocad-addin"}
 
 
 def _free_port() -> int:
@@ -54,44 +55,57 @@ def _python_endpoints() -> list[str]:
             if name.isupper() and isinstance(value, str) and value.startswith("/")]
 
 
-def _csharp_constants() -> dict[str, str]:
-    source = (ADDIN / "src" / "Protocol.cs").read_text(encoding="utf-8")
+def _csharp_constants(addin: Path) -> dict[str, str]:
+    source = (addin / "src" / "Protocol.cs").read_text(encoding="utf-8")
     return dict(re.findall(r'public const string (\w+)\s*=\s*"([^"]*)";', source))
 
 
-def test_the_addin_and_the_python_protocol_agree():
+@pytest.mark.parametrize("addin", ADDINS.values(), ids=ADDINS.keys())
+def test_the_addin_and_the_python_protocol_agree(addin):
     """A rename on one side that is not mirrored on the other is a silent break."""
-    constants = _csharp_constants()
+    constants = _csharp_constants(addin)
     assert constants["Version"] == protocol.PROTOCOL_VERSION
     csharp = set(constants.values())
     # Derived, not listed: an endpoint added to the protocol must reach the
     # add-in, and this test has to fail until it does.
     for endpoint in _python_endpoints():
-        assert endpoint in csharp, f"the add-in does not know the endpoint {endpoint}"
+        assert endpoint in csharp, f"{addin.name} does not know the endpoint {endpoint}"
     for action in protocol.ACTIONS:
-        assert action in csharp, f"the add-in does not know the action {action}"
+        assert action in csharp, f"{addin.name} does not know the action {action}"
     for code in (protocol.ERR_NOT_FOUND, protocol.ERR_AMBIGUOUS, protocol.ERR_UNSUPPORTED,
                  protocol.ERR_NO_TRANSACTION, protocol.ERR_READ_ONLY, protocol.ERR_HOST,
                  protocol.ERR_MEASUREMENT, protocol.ERR_BUSY):
-        assert code in csharp, f"the add-in does not know the error code {code}"
+        assert code in csharp, f"{addin.name} does not know the error code {code}"
 
 
-def test_the_addin_routes_every_endpoint_it_declares():
+@pytest.mark.parametrize("addin", ADDINS.values(), ids=ADDINS.keys())
+def test_the_addin_routes_every_endpoint_it_declares(addin):
     """Declaring a constant is not implementing it."""
-    router = (ADDIN / "src" / "HostServer.cs").read_text(encoding="utf-8")
+    router = (addin / "src" / "HostServer.cs").read_text(encoding="utf-8")
     endpoints = set(_python_endpoints())
-    for name, value in _csharp_constants().items():
+    for name, value in _csharp_constants(addin).items():
         if value in endpoints:
-            assert f"case Protocol.{name}:" in router, f"HostServer does not route {name}"
+            assert f"case Protocol.{name}:" in router, f"{addin.name} HostServer does not route {name}"
 
 
-def test_only_the_apply_command_opens_a_transaction():
-    """The single-writer invariant, enforced in C# and not only in the caller."""
+def test_only_the_apply_command_opens_a_revit_transaction():
+    """Revit's single-writer invariant: a Transaction always means a write."""
     for path in sorted((ADDIN / "src").rglob("*.cs")):
         if path.name == "ApplyCommand.cs":
             continue
         body = path.read_text(encoding="utf-8")
         assert "new Transaction(" not in body, f"{path.name} opens a transaction"
+
+
+def test_only_the_apply_path_upgrades_an_autocad_entity_for_write():
+    """AutoCAD's transactions serve reads too; the write marker is UpgradeOpen."""
+    addin = ADDINS["autocad"]
+    allowed = {"ApplyCommand.cs", "EntityView.cs"}
+    for path in sorted((addin / "src").rglob("*.cs")):
+        if path.name in allowed:
+            continue
+        body = path.read_text(encoding="utf-8")
+        assert "UpgradeOpen(" not in body, f"{path.name} opens an entity for write"
 
 
 # ----------------------------------------------------------------------
@@ -168,9 +182,10 @@ def test_an_unknown_action_is_refused_rather_than_ignored(live):
         live._call(protocol.APPLY, {"plan_id": "PLAN-4", "actions": [{"action": "explode"}]})
 
 
-def test_the_addin_refuses_to_hold_a_transaction_between_requests():
-    """Revit cannot; saying so beats pretending, which would corrupt a plan."""
-    router = (ADDIN / "src" / "HostServer.cs").read_text(encoding="utf-8")
+@pytest.mark.parametrize("addin", ADDINS.values(), ids=ADDINS.keys())
+def test_the_addin_refuses_to_hold_a_transaction_between_requests(addin):
+    """Neither host can; saying so beats pretending, which would corrupt a plan."""
+    router = (addin / "src" / "HostServer.cs").read_text(encoding="utf-8")
     block = router.split("case Protocol.Begin:")[1][:600]
     assert "Unsupported" in block
 

@@ -48,9 +48,10 @@ class AdapterRegistry:
         return [a.describe() for a in self.adapters]
 
 
-def default_registry(revit_url: str = "", token: str = "") -> AdapterRegistry:
+def default_registry(revit_url: str = "", token: str = "", dwg_url: str = "") -> AdapterRegistry:
     revit = RevitAdapter(revit_url or RevitAdapter().url, token=token)
-    return AdapterRegistry([revit, JsonAdapter(), DwgAdapter(), PdfAdapter()])
+    dwg = DwgAdapter(dwg_url or DwgAdapter().url, token=token)
+    return AdapterRegistry([revit, JsonAdapter(), dwg, PdfAdapter()])
 
 
 # ----------------------------------------------------------------------

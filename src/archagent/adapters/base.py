@@ -90,15 +90,22 @@ class SourceRef:
         return {"kind": self.kind, "location": self.location,
                 "discipline": self.discipline, "role": self.role}
 
+    #: URL scheme -> the ``host`` option an adapter's ``detects()`` matches on.
+    HOST_SCHEMES = {"revit": "revit", "autocad": "autocad", "civil3d": "civil3d",
+                    "dwg": "autocad"}
+
     @classmethod
     def parse(cls, value: str, discipline: str = ARCHITECTURE, **options) -> "SourceRef":
-        """``/path/to/file.rvt`` or ``revit://127.0.0.1:8735``/``http://…``."""
+        """A file path, or ``<tool>://host:port`` for a live host (``revit://``,
+        ``autocad://``, ``civil3d://``, or a bare ``http://…``)."""
         text = str(value)
         if text.startswith(("http://", "https://")):
             return cls("host", text, discipline, options=options)
-        if text.startswith("revit://"):
-            return cls("host", "http://" + text[len("revit://"):], discipline,
-                       options={**options, "host": "revit"})
+        for scheme, host in cls.HOST_SCHEMES.items():
+            prefix = f"{scheme}://"
+            if text.startswith(prefix):
+                return cls("host", "http://" + text[len(prefix):], discipline,
+                           options={**options, "host": host})
         return cls("file", text, discipline, options=options)
 
 

@@ -61,6 +61,9 @@ class RevitDriver(DrawingDriver):
     """A live Revit document, reached through the Archagent add-in."""
 
     name = "revit"
+    #: Human-facing name for connection error messages; a subclass fronting a
+    #: different host (see ``drawing/dwg.py``) overrides it, not the messages.
+    host_label = "Revit"
 
     def __init__(self, base_url: str = "http://127.0.0.1:8735", timeout: float = 120.0,
                  token: str = "", session: "RevitDriver | None" = None):
@@ -92,10 +95,12 @@ class RevitDriver(DrawingDriver):
             data = _read_error(error)
         except urllib.error.URLError as error:
             raise HostUnavailable(
-                f"the Revit host at {self.base_url} did not answer ({error.reason}). "
-                "Is Revit open with the Archagent add-in loaded?") from error
+                f"the {self.host_label} host at {self.base_url} did not answer "
+                f"({error.reason}). Is {self.host_label} open with the Archagent add-in "
+                "loaded?") from error
         except TimeoutError as error:
-            raise HostUnavailable(f"the Revit host timed out after {self.timeout}s") from error
+            raise HostUnavailable(
+                f"the {self.host_label} host timed out after {self.timeout}s") from error
         if isinstance(data, dict) and data.get("error"):
             raise _to_exception(data)
         return data if isinstance(data, dict) else {"value": data}

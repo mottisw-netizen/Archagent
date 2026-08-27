@@ -15,7 +15,9 @@ import socket
 import pytest
 
 from archagent.consult import ScriptedResponder, auto_approve
+from archagent.drawing.dwg import DwgDriver
 from archagent.drawing.mock_host import serve
+from archagent.drawing.revit import RevitDriver
 from archagent.models import CommentStatus
 from archagent.orchestrator import Orchestrator
 
@@ -198,3 +200,51 @@ def test_a_comment_no_open_tool_can_reach_is_not_silently_dropped(tmp_path):
     assert item.status is CommentStatus.REQUIRES_HUMAN_REVIEW
     assert result.context.open_items and any(
         entry["ref"] == "C-001" for entry in result.context.open_items)
+
+
+# ----------------------------------------------------------------------
+# two live hosts at once - Revit and a second tool, both genuinely edited
+# ----------------------------------------------------------------------
+def test_a_run_edits_two_live_hosts_at_once(tmp_path):
+    """Not a file plus a host - two separate live tools in the same run."""
+    project = tmp_path / "project"
+    (project / "municipal_comments").mkdir(parents=True)
+    (project / "municipal_comments" / "comments.md").write_text(COMMENTS, encoding="utf-8")
+
+    arch_served = tmp_path / "arch_open_in_revit.json"
+    arch_served.write_text(json.dumps(ARCH_MODEL), encoding="utf-8")
+    arch_host = serve(arch_served, port=_free_port())
+
+    traffic_served = tmp_path / "traffic_open_in_autocad.json"
+    traffic_served.write_text(json.dumps(TRAFFIC_MODEL), encoding="utf-8")
+    traffic_host = serve(traffic_served, port=_free_port())
+
+    try:
+        result = Orchestrator(
+            project, mode="consultation", responder=ScriptedResponder({"C-005": "approve"}),
+            output_dir=tmp_path / "out",
+            sources=[f"revit://127.0.0.1:{arch_host.server_address[1]}",
+                    f"autocad://127.0.0.1:{traffic_host.server_address[1]}"],
+        ).run()
+
+        assert {change.adapter for change in result.changes} == {"revit", "dwg"}
+        resolved = {item.comment_id: item.status for item in result.validation.comments}
+        assert resolved["C-005"] is CommentStatus.RESOLVED
+        assert resolved["C-001"] is CommentStatus.RESOLVED
+
+        # both live documents were genuinely edited - in the host, not on disk:
+        # the seed file each host started from is untouched (SKILL.md 16 extends
+        # to every live source, not only the primary).
+        arch_seed = json.loads(arch_served.read_text(encoding="utf-8"))
+        assert arch_seed["elements"][0]["geometry"]["y"] == 20.0
+        traffic_seed = json.loads(traffic_served.read_text(encoding="utf-8"))
+        seed_p12 = next(e for e in traffic_seed["elements"] if e["id"] == "parking_p12")
+        assert seed_p12["geometry"]["w"] == 2.4
+
+        arch_live = RevitDriver(f"http://127.0.0.1:{arch_host.server_address[1]}")
+        assert arch_live.get_element("building")["geometry"]["y"] == 19.6
+        traffic_live = DwgDriver(f"http://127.0.0.1:{traffic_host.server_address[1]}")
+        assert traffic_live.get_element("parking_p12")["geometry"]["w"] == 2.5
+    finally:
+        arch_host.shutdown()
+        traffic_host.shutdown()

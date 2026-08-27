@@ -263,16 +263,16 @@ one municipal comment is routed to whichever adapter holds the element it names.
    comment ─────────▶│    Router    │──▶ discipline + the source that holds it
                      └──────┬───────┘
               ┌─────────────┼──────────────┬───────────────┐
-        RevitAdapter   JsonAdapter    DwgAdapter      PdfAdapter
-        live, edits    reference      declared        read + markup
-        the document   model          (not yet)       never edits
+        RevitAdapter   JsonAdapter     DwgAdapter      PdfAdapter
+        live, edits    reference      live, edits      read + markup
+        the document   model          the drawing      never edits
 ```
 
 | Adapter | Disciplines | Can | State |
 | --- | --- | --- | --- |
 | `revit` | architecture, structure, accessibility, fire | read, measure, edit, preview, version | live, over the add-in |
 | `json` | architecture, traffic | read, measure, edit, preview, version | the reference driver |
-| `dwg` | traffic, roads, drainage, landscape | read, markup | declared; states what it needs |
+| `dwg` | traffic, roads, drainage, landscape | read, measure, edit, preview, version | live, over the add-in (AutoCAD/Civil 3D) - a bare file is still declared, not implemented |
 | `pdf` | documents, environment | read, markup | never edits a document |
 
 An adapter that cannot serve a source says exactly what is missing, and the
@@ -342,6 +342,24 @@ archagent run examples/project_he --source revit://127.0.0.1:8735
 A full pipeline run against that live host produces results identical to the
 file-based run; the tests assert it.
 
+### AutoCAD and Civil 3D
+
+`autocad-addin/` is the equivalent add-in for a consultant's DWG - the traffic,
+roads and drainage disciplines Revit does not cover. It speaks the *identical*
+protocol (that is the point of `protocol.py`), so the Python side needed almost
+nothing new: `DwgDriver` is a two-line subclass of `RevitDriver`. See
+[`autocad-addin/README.md`](autocad-addin/README.md) for the build, the
+XDATA/layer-name convention a drawing needs to participate, and what is and is
+not verified - including the Civil 3D-specific objects (alignments, corridors)
+this phase does not read.
+
+```bash
+archagent run project --source revit://127.0.0.1:8735 --source autocad://127.0.0.1:8736
+```
+
+A single run against two live mock hosts, addressed as `revit://` and
+`autocad://`, edits both and merges the result; the tests assert it too.
+
 ### The Diff / Change Set
 
 Every run writes `output/<run>/change_set.json`: each element the run touched,
@@ -357,8 +375,11 @@ Implement `archagent.adapters.base.BaseAdapter` (and, for a live tool, the host
 protocol) and register it. Nothing above the adapter layer changes. The contract
 each driver method must honour - including the `before`/`after` change record
 and the measurement basis - is documented in `drawing/api.py`; `JsonAdapter` is
-the worked example, and `DwgAdapter` shows how to declare an adapter that is not
-implemented yet without pretending otherwise.
+the worked example. `DwgAdapter` is the worked example for a *second* live
+host reusing the same protocol client (`RevitDriver`/`DwgDriver`); `PdfAdapter`
+shows how to declare an adapter that is deliberately never live, and its own
+history shows how to declare one that is not implemented yet without
+pretending otherwise.
 
 PDF comment text is read via `pdftotext` if present, or a hook you register at
 `archagent.ingest.PDF_TEXT_EXTRACTOR`. If neither is available, the file is
