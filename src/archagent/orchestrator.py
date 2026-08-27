@@ -32,6 +32,7 @@ from .execute import ExecutionAgent
 from .graph import build_graph, impact_set, merge_graphs
 from .adapters import AdapterRegistry, OpenSource, Router, Routing, SourceRef, Workspace, default_registry
 from .ingest import Ingestor
+from .national_standards import derive_national_constraints
 from .lang.messages import Messages
 from .llm.client import LLMClient
 from .llm.disambiguate import ElementDisambiguator
@@ -140,6 +141,7 @@ class Orchestrator:
         scopes = self._editable_scopes(routings)
         for scope in scopes:
             derive_implicit_constraints(scope.driver, self.ledger, self.m)
+            derive_national_constraints(scope.driver, self.ledger, self.m)
 
         graphs = []
         validations = []
@@ -362,6 +364,7 @@ class Orchestrator:
         constraints_from_comments(context.municipal_comments, self.ledger, self.m)
         if self.driver is not None:
             derive_implicit_constraints(self.driver, self.ledger, self.m)
+            derive_national_constraints(self.driver, self.ledger, self.m)
         context.planning_constraints = self.ledger.all
         for conflict in find_conflicts(self.ledger):
             self.audit.write("constraint_engine", "conflict", result=conflict)

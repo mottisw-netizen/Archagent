@@ -1,0 +1,112 @@
+"""National (Israeli) planning-regulation defaults, wired into the ledger.
+
+Proves the actual gap PERMIT_LEARNING_MISSION.md's owner asked to close:
+before this, `archagent.traffic.parking.validate_space` existed and was
+correct but was never called outside its own tests - a parking space could
+be genuinely undersized with no municipal comment ever mentioning it, and
+Archagent would never catch it. These tests prove the national minimum is
+now checked unconditionally, from the drawing model alone.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from archagent.constraints import ConstraintLedger, evaluate_constraint
+from archagent.drawing.json_model import JSONModelDriver
+from archagent.models import Priority
+from archagent.national_standards import (
+    PARKING_MIN_LENGTH,
+    PARKING_MIN_WIDTH,
+    PARKING_MIN_WIDTH_ACCESSIBLE,
+    derive_national_constraints,
+)
+
+SITE = {"plot": {"kind": "rect", "x": 0.0, "y": 0.0, "w": 40.0, "h": 30.0}}
+
+
+def _driver(elements):
+    return JSONModelDriver({
+        "project_id": "p", "units": "m", "north": "+y", "site": SITE,
+        "sheets": [], "elements": elements, "schedules": {},
+    })
+
+
+def _parking(element_id, w, h, category=None):
+    props = {"width_axis": "x"}
+    if category:
+        props["category"] = category
+    return {"id": element_id, "type": "parking", "label": element_id,
+           "geometry": {"kind": "rect", "x": 0.0, "y": 0.0, "w": w, "h": h},
+           "properties": props}
+
+
+def test_an_undersized_space_is_flagged_even_with_no_comment_at_all():
+    """The core gap this closes: no comment, no explicit project requirement -
+    just a real space that is narrower than the law allows."""
+    driver = _driver([_parking("p1", 2.0, 5.0)])
+    ledger = ConstraintLedger()
+    created = derive_national_constraints(driver, ledger)
+
+    width_constraints = [c for c in created if c.test.metric == "width"]
+    assert len(width_constraints) == 1
+    constraint = width_constraints[0]
+    assert constraint.source == "Planning Regulation"
+    assert constraint.priority is Priority.CRITICAL
+    assert constraint.test.value == pytest.approx(PARKING_MIN_WIDTH.value)
+
+    result = evaluate_constraint(driver, constraint)
+    assert result.status == "fail"
+
+
+def test_a_space_that_meets_the_national_minimum_passes():
+    driver = _driver([_parking("p1", 2.4, 5.0)])
+    ledger = ConstraintLedger()
+    created = derive_national_constraints(driver, ledger)
+    results = [evaluate_constraint(driver, c) for c in created]
+    assert all(r.status == "pass" for r in results)
+
+
+def test_accessible_parking_uses_the_stricter_national_width():
+    driver = _driver([_parking("p1", 2.4, 5.0, category="accessible")])
+    ledger = ConstraintLedger()
+    created = derive_national_constraints(driver, ledger)
+    width_constraint = next(c for c in created if c.test.metric == "width")
+    assert width_constraint.test.value == pytest.approx(PARKING_MIN_WIDTH_ACCESSIBLE.value)
+
+    result = evaluate_constraint(driver, width_constraint)
+    assert result.status == "fail"  # 2.4 m is below the 3.0 m accessible minimum
+
+
+def test_length_is_checked_against_the_safe_floor():
+    driver = _driver([_parking("p1", 2.4, 4.0)])
+    ledger = ConstraintLedger()
+    created = derive_national_constraints(driver, ledger)
+    length_constraint = next(c for c in created if c.test.metric == "length")
+    assert length_constraint.test.value == pytest.approx(PARKING_MIN_LENGTH.value)
+    assert evaluate_constraint(driver, length_constraint).status == "fail"
+
+
+def test_non_parking_elements_are_left_alone():
+    driver = _driver([{"id": "w1", "type": "wall", "label": "W1",
+                       "geometry": {"kind": "rect", "x": 0.0, "y": 0.0, "w": 0.1, "h": 3.0}}])
+    ledger = ConstraintLedger()
+    assert derive_national_constraints(driver, ledger) == []
+
+
+def test_an_unmeasurable_element_is_skipped_not_crashed_on():
+    """A parking element declared without geometry at all must not blow up
+    the whole pass - the same 'skip what cannot be measured' rule every
+    other constraint-deriving function in this codebase follows."""
+    driver = _driver([{"id": "p1", "type": "parking", "label": "P1", "properties": {}}])
+    ledger = ConstraintLedger()
+    assert derive_national_constraints(driver, ledger) == []
+
+
+def test_every_created_constraint_is_sourced_to_a_citable_regulation():
+    driver = _driver([_parking("p1", 2.0, 4.0)])
+    ledger = ConstraintLedger()
+    created = derive_national_constraints(driver, ledger)
+    assert created  # sanity: this test project's fixture actually triggers checks
+    for constraint in created:
+        assert "תקנות" in constraint.rule  # the rule text embeds the regulation citation

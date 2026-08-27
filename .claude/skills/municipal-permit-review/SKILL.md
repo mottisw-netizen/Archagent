@@ -623,6 +623,12 @@ Never violate a higher-priority constraint to satisfy a lower-priority one.
 
 Everything already approved is itself a constraint. Before proposing a change, record as constraints the values that must **not** change: existing compliant setbacks, the approved unit count, approved areas, structural grid, existing consultant interfaces. Preserving valid existing design (§17.1) is enforced through this ledger, not through memory.
 
+### 8.2b National regulation defaults
+
+Not every real violation is mentioned in a comment. `archagent.national_standards.derive_national_constraints` adds a third automatic source alongside §8.2's implicit constraints: statutory Israeli minimums (currently: parking space width/length, tiered by obstruction and end condition, sourced to תקנות התכנון והבניה (התקנת מקומות חניה), תשמ״ג-1983), emitted with `source="Planning Regulation"` - already CRITICAL priority and second-strongest source rank (§3.4) by design, weaker only than an explicit municipal comment. This runs on every project, for every authority, not only Petah Tikva: a parking space narrower than the national minimum is now flagged even when no comment ever mentions it.
+
+Every number here must be sourced to a specific, citable statute - never to a spec document or a guess. `docs/NATIONAL_VS_LOCAL_STANDARDS.md` is the parameter-by-parameter survey (per project's `PERMIT_LEARNING_MISSION.md`) of what else was checked, what is genuinely local/plan-specific by the nature of Israeli planning law (landscaping ratios, setbacks, drainage clearances - these vary by zoning plan on purpose), and what national standards exist but are not yet wired in (ramp slope, turning radius, accessible parking count) with the specific reason for each gap. Do not add a new "national" default without a citation that survey doc can point to.
+
 ### 8.3 Conflict resolution
 
 When two constraints cannot both be satisfied:
