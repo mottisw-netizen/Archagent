@@ -1,0 +1,32 @@
+# Petah Tikva authority profile (Archagent Petah Tikva Municipal Permit
+# Review Completion Plan §4). This file, and the rest of this directory, is
+# a municipality-specific rule pack - not a change to the generic parser.
+# Every department, term and geometry number here is sourced to the supplied
+# Petah Tikva municipal permit record; none of it is a universal Israeli
+# planning rule, and none of it should be treated as one without an explicit
+# authority/project source document.
+
+authority: petah_tikva
+display_name: "עיריית פתח תקווה"
+language: he
+rtl: true
+
+departments:
+  - architecture
+  - traffic
+  - roads_drainage
+  - environment
+  - sanitation
+  - properties
+  - electricity_lighting
+  - forestry
+  - accessibility
+  - fire
+
+# Distinguishes what kind of statement a rule in this pack is - the profile
+# loader does not enforce this, it is guidance for whoever adds a new rule.
+requirement_kinds:
+  - municipal_requirement
+  - project_specific_requirement
+  - planning_plan_requirement
+  - professional_interpretation

@@ -1,0 +1,50 @@
+# Document/evidence types this authority's supplied record asked for, with
+# the professional role and stage each is normally tied to (spec §15-§18,
+# §28). Consumed by archagent.evidence.checker.PermitEvidenceChecker as
+# defaults, never as a substitute for the professional's own judgement, and
+# never as proof that a document is present - the checker only ever reports
+# what it was given.
+- type: hydrologic_report
+  department: roads_drainage
+  required_stage: design_control
+  professional_role: hydrologist
+- type: acoustic_report
+  department: environment
+  required_stage: design_control
+  professional_role: acoustic_consultant
+- type: post_construction_acoustic_measurement
+  department: environment
+  required_stage: completion
+  professional_role: acoustic_consultant
+- type: asbestos_survey
+  department: environment
+  required_stage: design_control
+  professional_role: certified_asbestos_surveyor
+- type: asbestos_removal_evidence
+  department: environment
+  required_stage: start_of_work
+  professional_role: certified_asbestos_surveyor
+- type: air_quality_assessment
+  department: environment
+  required_stage: design_control
+  professional_role: environmental_consultant
+- type: radiation_report
+  department: environment
+  required_stage: design_control
+  professional_role: radiation_consultant
+- type: green_building_certification
+  department: environment
+  required_stage: completion
+  authority: "מכון ההתעדה"
+- type: traffic_engineer_plan
+  department: traffic
+  required_stage: design_control
+  professional_role: traffic_engineer
+- type: tree_survey
+  department: forestry
+  required_stage: design_review
+  professional_role: landscape_architect
+- type: tree_cutting_license
+  department: forestry
+  required_stage: permit_issuance
+  authority: "פקיד היערות"

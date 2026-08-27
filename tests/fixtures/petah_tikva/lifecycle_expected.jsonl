@@ -1,0 +1,5 @@
+{"round": 1, "version": "v1", "comments": [{"comment_id": "C-101", "text": "יש לתקן את מערכת הניקוז באזור החניה", "department": "Drainage"}, {"comment_id": "T-101", "text": "יש להגיש טבלת חניה", "department": "Traffic"}]}
+{"round": 2, "version": "v2", "comments": [{"comment_id": "C-201", "text": "יש לספק מידות לשוחת ההשהיה של מערכת הניקוז", "department": "Drainage"}, {"comment_id": "T-201", "text": "יש להגיש טבלת חניה הכוללת חניות נגישות וחניות מבקרים", "department": "Traffic"}]}
+{"round": 3, "version": "v3", "comments": [{"comment_id": "C-301", "text": "יש להראות את שוחת ההשהיה של מערכת הניקוז בתכנית הפיתוח", "department": "Drainage"}, {"comment_id": "T-301", "text": "יש להגיש טבלת חניה מלאה ומבוססת על התכנית בפועל הכוללת חניות נגישות, מבקרים ותושבים", "department": "Traffic"}]}
+{"round": 4, "version": "v4", "comments": [{"comment_id": "C-401", "text": "יש להסיר את תעלת הניקוז ולהשתמש בשיפוע של לפחות 1% במערכת הניקוז", "department": "Drainage"}]}
+{"expected": {"total_requirements": 7, "still_open": 2, "final_source_version": "v4"}}

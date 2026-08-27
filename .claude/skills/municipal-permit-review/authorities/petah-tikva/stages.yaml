@@ -1,0 +1,31 @@
+# Permit stages (spec §18) and this authority's own examples of which stage
+# each requirement type is typically due at. The stage vocabulary itself is
+# generic (archagent.lifecycle.stages.PermitStage); the *examples* below are
+# Petah Tikva/project-authority observations, not a universal rule - a real
+# project may set different due stages in its own approved schedule.
+stages:
+  - pre_application
+  - design_review
+  - committee
+  - design_control
+  - permit_issuance
+  - start_of_work
+  - construction
+  - completion
+  - form_4
+
+examples:
+  - requirement: acoustic_report
+    required_stage: design_control
+  - requirement: post_construction_acoustic_measurement
+    required_stage: completion
+  - requirement: asbestos_survey
+    required_stage: design_control
+  - requirement: asbestos_dismantling_receipts
+    required_stage: start_of_work
+  - requirement: green_building_certification
+    required_stage: completion
+  - requirement: hydrologic_report
+    required_stage: design_control
+  - requirement: ev_charging_infrastructure
+    required_stage: permit_issuance

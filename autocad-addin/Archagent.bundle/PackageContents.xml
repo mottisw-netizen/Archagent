@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage SchemaVersion="1.0" AppVersion="1.0.0"
+    Name="Archagent" Description="Archagent - municipal permit review host"
+    AppNameSpace="Archagent" ProductCode="{6C6E7B0A-6E7F-4E5E-9C2C-2E0D5B7A9C41}"
+    UpgradeCode="{2E0D5B7A-9C31-4E5E-9C2C-6C6E7B0A6E7F}" Vendor="Archagent">
+  <CompanyDetails Name="Archagent" Url="" Email=""/>
+  <Components Description="Archagent host">
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD|Civil3D" SeriesMin="R24.0" SeriesMax="*"/>
+    <ComponentEntry AppName="Archagent" ModuleName="./Contents/Archagent.AutoCAD.dll"
+        AppDescription="Archagent - municipal permit review host"
+        LoadOnAutoCADStartup="true" LoadOnCommandInvocation="false"/>
+  </Components>
+</ApplicationPackage>

@@ -1,0 +1,32 @@
+services:
+  archagent:
+    build: .
+    image: archagent:latest
+    ports:
+      - "${ARCHAGENT_PORT:-8000}:8000"
+    volumes:
+      - archagent-data:/data/projects
+      # Where the `claude` CLI keeps its login (OAuth session from a Claude.ai
+      # Pro/Max subscription, or an API key if you authenticated that way
+      # instead) - mounted so `docker compose up` doesn't ask you to log in
+      # again every time the container restarts. See DOCKER.md for the
+      # one-time login step.
+      - archagent-claude-auth:/root/.claude
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    # Lets the container reach a Revit/AutoCAD add-in listening on the host
+    # machine's loopback (revit://host.docker.internal:8735) - see DOCKER.md.
+    # Docker Desktop (Windows/Mac) already provides this name; this line is
+    # what makes the same compose file work on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  # Pinned names (not Compose's default project-prefixed name) so the exact
+  # `docker volume rm archagent-claude-auth` in DOCKER.md works the same way
+  # whether Archagent was started via Compose or plain run.sh/run.bat.
+  archagent-data:
+    name: archagent-data
+  archagent-claude-auth:
+    name: archagent-claude-auth

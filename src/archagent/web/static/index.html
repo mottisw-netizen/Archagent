@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="he" dir="rtl" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Archagent · בדיקת הערות רישוי</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>📐</text></svg>">
+</head>
+<body>
+
+<div class="bg-glow" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark-halo">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="markGrad" x1="0" y1="0" x2="32" y2="32">
+            <stop offset="0" stop-color="var(--accent)"/>
+            <stop offset="1" stop-color="var(--accent-2)"/>
+          </linearGradient>
+        </defs>
+        <rect x="3" y="7" width="26" height="18" rx="2.5" class="mark-sheet"/>
+        <path d="M8 21V13h6.5v8" class="mark-line"/>
+        <path d="M18 21v-5h6" class="mark-line"/>
+        <circle cx="24" cy="12" r="2.6" class="mark-dot"/>
+      </svg>
+    </span>
+    <div>
+      <strong>Archagent</strong>
+      <span>בדיקה ותיקון הערות רישוי</span>
+    </div>
+  </div>
+
+  <div class="topbar-actions">
+    <button id="connection-chip" class="chip" type="button" aria-haspopup="dialog">
+      <span class="dot" id="connection-dot"></span>
+      <span id="connection-label">בודק חיבור…</span>
+    </button>
+    <button id="theme-toggle" class="icon-button" type="button" title="החלפת ערכת נושא"
+            aria-label="החלפת ערכת נושא">◐</button>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="rail">
+    <section class="panel">
+      <h2>פרויקטים</h2>
+      <ul id="project-list" class="project-list" aria-live="polite"></ul>
+      <form id="upload-form" class="dropzone" tabindex="0">
+        <input type="file" id="upload-input" multiple hidden>
+        <div class="dropzone-inner">
+          <span class="dropzone-icon">＋</span>
+          <strong>גררו לכאן קבצים</strong>
+          <span class="muted">הערות רישוי · תב"ע · מודל</span>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <h2>הרצות אחרונות</h2>
+      <ul id="run-list" class="run-list"></ul>
+    </section>
+  </aside>
+
+  <main>
+    <section class="panel launch">
+      <div class="launch-head">
+        <div>
+          <h1 id="launch-title">בחרו פרויקט להרצה</h1>
+          <p class="muted" id="launch-subtitle">הסוכן קורא את ההערות, מאתר את האלמנטים, מתקן ומודד.</p>
+        </div>
+        <div class="launch-actions">
+          <button id="edit-model-button" class="ghost" type="button" disabled>עריכת מודל</button>
+          <button id="start-button" class="primary" type="button" disabled>
+            <span class="spinner" hidden></span><span class="label">התחלת בדיקה</span>
+          </button>
+        </div>
+      </div>
+
+      <section class="panel" id="model-editor" hidden>
+        <div class="viewer-toolbar">
+          <label class="field">
+            <span>גרסה</span>
+            <select id="edit-version"></select>
+          </label>
+          <label class="field">
+            <span>צעד הזזה</span>
+            <select id="edit-step">
+              <option value="0.1">0.10 מ'</option>
+              <option value="0.5" selected>0.50 מ'</option>
+              <option value="1">1.00 מ'</option>
+            </select>
+          </label>
+          <button id="edit-close" class="ghost" type="button">סגירה</button>
+          <span class="muted small viewer-hint">גלגלת = זום · גרירה = הזזה · קליק = בחירת אלמנט</span>
+        </div>
+        <div class="viewer-layout">
+          <div class="viewer-stage"><canvas id="edit-canvas"></canvas></div>
+          <div class="viewer-details" id="edit-details">
+            <p class="empty">לחצו על אלמנט לעריכה</p>
+          </div>
+        </div>
+      </section>
+
+      <div class="controls">
+        <label class="field">
+          <span>מנוע</span>
+          <select id="engine">
+            <option value="pipeline">מנוע הסוכן · התייעצות חיה</option>
+            <option value="claude-code">Claude Code · מנהל את ההרצה</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>מצב עבודה</span>
+          <select id="mode">
+            <option value="consultation">התייעצות</option>
+            <option value="autonomous">אוטונומי</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>שפת הדוח</span>
+          <select id="language">
+            <option value="auto">לפי ההערות</option>
+            <option value="he">עברית</option>
+            <option value="en">אנגלית</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>עומק חשיבה</span>
+          <select id="effort">
+            <option value="">ברירת מחדל (high)</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
+            <option value="max">max</option>
+          </select>
+        </label>
+        <label class="field checkbox">
+          <input type="checkbox" id="no-llm">
+          <span>ללא מודל שפה (פרסר דטרמיניסטי בלבד)</span>
+        </label>
+      </div>
+
+      <div class="controls cad-row">
+        <label class="field cad-field">
+          <span>שרטוט חי (אופציונלי)</span>
+          <input type="text" id="cad-source" dir="ltr" placeholder="revit://127.0.0.1:8735">
+        </label>
+        <button id="cad-check" class="ghost" type="button">בדיקת חיבור</button>
+        <p class="cad-status muted" id="cad-status">ריק = המודל שבתוך הפרויקט. כתובת = המסמך הפתוח ברוויט, דרך התוסף. רץ בדוקר על אותו מחשב? כתבו host.docker.internal במקום 127.0.0.1.</p>
+      </div>
+      <p class="engine-note muted" id="engine-note"></p>
+    </section>
+
+    <section class="panel intro" id="intro">
+      <h2>מה קורה בהרצה</h2>
+      <div class="intro-steps">
+        <div class="intro-step"><span class="n">01</span><strong>קריאת ההערות</strong>
+          <span>Claude מפרש כל הערה לדרישה נמדדת; פרסר דטרמיניסטי בודק אותו</span></div>
+        <div class="intro-step"><span class="n">02</span><strong>איתור האלמנטים</strong>
+          <span>מיפוי ההערה לאלמנטים בשרטוט, עם ראיות</span></div>
+        <div class="intro-step"><span class="n">03</span><strong>תכנון מינימלי</strong>
+          <span>השינוי הקטן ביותר שמקיים את ההערה בלי לשבור אילוץ אחר</span></div>
+        <div class="intro-step"><span class="n">04</span><strong>סימולציה</strong>
+          <span>כל תוכנית נבדקת על עותק מבודד מול כל מאגר האילוצים</span></div>
+        <div class="intro-step"><span class="n">05</span><strong>התייעצות</strong>
+          <span>החלטה תכנונית נעצרת ומגיעה אליכם, לא מוכרעת בשקט</span></div>
+        <div class="intro-step"><span class="n">06</span><strong>ביצוע ואימות</strong>
+          <span>שינוי במודל, מדידה חוזרת, גרסה חדשה ודוח</span></div>
+      </div>
+      <div class="guarantees">
+        <div class="g"><b>✔</b><span>קובץ המקור לעולם אינו נדרס — כל גרסה נשמרת בנפרד ונבדק ה-checksum בסוף.</span></div>
+        <div class="g"><b>✔</b><span>המודל מפרש, השרטוט מודד — כל מספר בדוח מגיע מכלי מדידה.</span></div>
+        <div class="g"><b>✔</b><span>הערה מסומנת "טופל" רק עם ראיה מדודה.</span></div>
+      </div>
+    </section>
+
+    <section class="panel live" id="live" hidden>
+      <div class="live-head">
+        <h2>מהלך ההרצה</h2>
+        <div class="live-actions">
+          <span class="run-status" id="run-status"></span>
+          <button id="cancel-button" class="ghost" type="button">ביטול</button>
+        </div>
+      </div>
+      <ol class="steps" id="steps"></ol>
+      <div class="stream-wrap">
+        <ul class="stream" id="stream" aria-live="polite"></ul>
+      </div>
+    </section>
+
+    <section class="panel question" id="question" hidden aria-live="assertive">
+      <div class="question-head">
+        <span class="badge">נדרשת החלטה</span>
+        <h2 id="question-title"></h2>
+      </div>
+      <blockquote id="question-comment"></blockquote>
+      <div class="question-grid">
+        <div>
+          <h3>התיקון המוצע</h3>
+          <p id="question-proposal"></p>
+          <h3>השלכות</h3>
+          <ul id="question-consequences"></ul>
+        </div>
+        <div>
+          <h3>הסיבה לשאלה</h3>
+          <ul id="question-reasons"></ul>
+          <h3>ביטחון</h3>
+          <div id="question-confidence"></div>
+        </div>
+      </div>
+      <div class="question-actions" id="question-actions"></div>
+    </section>
+
+    <section id="results" hidden>
+      <div class="kpis" id="kpis"></div>
+
+      <div class="panel">
+        <div class="chart-head">
+          <h2>סטטוס ההערות</h2>
+          <span class="muted" id="status-caption"></span>
+        </div>
+        <div id="status-chart"></div>
+      </div>
+
+      <div class="panel">
+        <nav class="tabs" id="tabs" role="tablist">
+          <button role="tab" data-tab="comments" class="active">הערות</button>
+          <button role="tab" data-tab="open">פריטים פתוחים</button>
+          <button role="tab" data-tab="constraints">אילוצים</button>
+          <button role="tab" data-tab="drawing">לפני / אחרי</button>
+          <button role="tab" data-tab="report">הדוח</button>
+          <button role="tab" data-tab="files">קבצים</button>
+        </nav>
+        <div class="tab-panels">
+          <div data-panel="comments" id="panel-comments"></div>
+          <div data-panel="open" id="panel-open" hidden></div>
+          <div data-panel="constraints" id="panel-constraints" hidden></div>
+          <div data-panel="drawing" id="panel-drawing" hidden></div>
+          <div data-panel="report" id="panel-report" hidden></div>
+          <div data-panel="files" id="panel-files" hidden></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="connect-dialog">
+  <form method="dialog" class="connect">
+    <h2>חיבור לשירות של Claude</h2>
+    <p class="muted">המפתח נשמר בזיכרון של השרת בלבד ואינו נכתב לדיסק.</p>
+    <label class="field">
+      <span>ANTHROPIC_API_KEY</span>
+      <input type="password" id="api-key" placeholder="sk-ant-…" autocomplete="off">
+    </label>
+    <label class="field">
+      <span>מודל</span>
+      <input type="text" id="model-input" placeholder="claude-opus-5">
+    </label>
+    <p class="muted small">אפשר גם להתחבר בשרת עם <code>ant auth login</code> ואז אין צורך במפתח כאן.</p>
+    <div class="dialog-actions">
+      <button value="cancel" class="ghost">ביטול</button>
+      <button value="save" class="primary" id="save-key">שמירה</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="tooltip" id="tooltip" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -136,6 +136,33 @@ Rules:
 - The Execution Agent executes only an approved, pre-validated plan (§9). It never improvises a change of its own.
 - The Validation Agent is independent of the Execution Agent: it re-measures the produced model instead of trusting the edit log.
 
+### 2.2 The language model and its boundary
+
+A language model does the reading. It is the primary interpreter of every
+municipal comment - what the department is demanding, which element the wording
+points at, how to explain a trade-off to an architect - because that is a
+language problem and pattern rules are brittle at it.
+
+The boundary is absolute and it is what makes the system safe to trust:
+
+> **The model interprets. The drawing measures.**
+
+- The model may state what a comment *demands* - the value written in the
+  comment, in the unit the comment uses.
+- The model may **never** state what the drawing *is*. Every current dimension,
+  area, count, clearance and compliance verdict comes from a measurement tool
+  (§12.1), and every number in a report is traceable to one.
+- Everything the model returns is validated against the vocabulary the drawing
+  layer can actually measure before it is acted on. A requirement naming a
+  metric no driver supports is rejected, not half-executed.
+- The model may choose between candidate elements it was given (§7.1), but only
+  from that list, and its pick is recorded as a judgement with its reasoning -
+  never as a match.
+- A deterministic parser runs alongside the model as a cross-check (§20.4).
+- If the model is unavailable, the run continues on the deterministic parser at
+  reduced confidence, which sends more comments to consultation. It never
+  silently proceeds as though nothing changed.
+
 ---
 
 ## 3. Required Input
@@ -873,6 +900,51 @@ Contract:
 - Measurement tools state their mode (edge / centerline / clear) - a clearance measured differently from the way the municipality measures it is a wrong answer with a right number.
 - Any tool may return `not_found`, `ambiguous`, `unsupported`, or `api_error`; each is handled per §21, never ignored.
 
+### 12.2 Adapters: one agent, many planning tools
+
+A permit package is not one drawing. The architectural model is Revit; traffic, roads, site development and drainage arrive as consultant DWGs; environmental and area appendices are documents. One municipal comment can land in any of them.
+
+The agent therefore never talks to a CAD program. It talks to an **adapter**, which opens one kind of source and returns a driver honouring §12.1.
+
+```text
+PlanningAgent
+  └ Router            decides discipline + which open source holds the element
+      ├ RevitAdapter      architecture, structure, accessibility, fire   read measure edit preview version
+      ├ DwgAdapter        traffic, roads, drainage, landscape            read measure edit preview version  (AutoCAD / Civil 3D, live)
+      ├ JsonAdapter       the reference model                            read measure edit preview version
+      └ PdfAdapter        documents, environment                         read markup      (never edits)
+  └ ValidationEngine  measures the result through whichever adapter produced it
+```
+
+Rules:
+
+- An adapter **states its capabilities** (`read`, `measure`, `edit`, `preview`, `version`, `markup`) rather than having them assumed. A comment that needs `edit` from an adapter that only has `markup` is answered with a measured instruction list, not with a silent no-op.
+- An adapter that cannot serve a source returns **what is missing, in words a person can act on** - not a broken driver, and never an exception that stops the run.
+- A comment routed to an unavailable adapter becomes an **open item with that reason**. It does not fall through to the architectural model, and it does not disappear.
+- Discipline comes from the department that wrote the comment; the *source* comes from which open drawing actually contains the element it names.
+- Adding a CAD tool is adding an adapter. Nothing above the adapter layer - planner, constraint engine, validator, report - may change.
+- Routing decides *where* a comment belongs; **execution follows it there**. A single run maps, plans, simulates and executes against every source that has work routed to it - not only the primary architectural source - so a run that touches Revit and a live DWG edits both. Each source is validated against its own driver, so a comment answered in one tool is never marked unresolved for want of a measurement through another. The dependency graph, the constraint ledger's evaluation and the change set are merged into one report across every source the run touched.
+
+### 12.3 Live hosts
+
+A file-based driver can copy a model to simulate on. A live host cannot: the document is the architect's, open on their screen. Three rules follow, and they are the whole difference:
+
+1. **A plan is applied as one batch.** A CAD API that only permits a transaction inside a single call cannot hold one open across a conversation. The approved plan is therefore sent whole: the host applies every action in one transaction group and commits, or rolls the group back and reports which action failed. **A half-applied plan must be impossible.** It is also one undo step for the architect.
+2. **Simulation never touches the live document.** The driver snapshots the model - elements, sheets and schedules - simulates the plan on the snapshot, and measures there. The live document is written once, after the plan has been simulated and, in consultation mode, approved. Whatever the snapshot cannot capture is caught afterwards: §14 re-measures through the host.
+3. **The open document is never a write target.** Versioning saves *a new file*; a host must refuse a `save_as` path equal to the document it has open.
+
+The wire contract is defined in one place and mirrored by every host. It carries a version; a client requires the same major version and tolerates added endpoints and fields.
+
+- Every length is metres, every area m². The host converts from its own internal units at its boundary.
+- Element ids on the wire are the host's **stable** ids (in Revit, `UniqueId` - not `ElementId`, which does not survive a session).
+- The host reports what it has open - document name, version, element count, read-only - so a person can confirm it is the right file before anything is edited.
+- Creating elements is refused by a live host: a new element needs a family, a type, a level and a host object - decisions belonging to the architect. The agent reports the need instead of inventing geometry.
+- One endpoint changes the view rather than the document: highlighting the change set in the host's own UI (§13.3). It needs no transaction and no plan, and it must not be able to alter the model.
+
+### 12.4 Headless files: no CAD seat at all
+
+Not every reviewer has Revit or AutoCAD, and a live host is not the only way an adapter can be real. A ``.dxf`` file opens and edits directly, with an open-source library (ezdxf, MIT), no add-in and nothing running - the adapter parses it into the same model shape a live driver returns, applies the plan to that model exactly as any other source does, and writes real entities back on save. A ``.dwg`` needs converting to DXF first, with a free but non-open-source converter run as a separate, unbundled process (the same posture as the PDF text extractor of §3.3) - stated as a requirement, not silently degraded, when it is missing. A GPL library is never linked in for this: it would force the whole product under GPL, which is incompatible with licensing the product commercially.
+
 ---
 
 ## 13. Preview and Highlight System
@@ -946,7 +1018,25 @@ Parking P12:
     preview_v2_changes.pdf          same set with highlights + legend
     compare_v1_v2/                  per-sheet before / after / overlay images
     change_map.json                 highlight → element → comment mapping
+    change_set.json                 the Diff / Change Set (§13.3)
 ```
+
+### 13.3 The Diff / Change Set
+
+The report explains the run to a person; the preview shows it to an eye. The change set is the third artefact, and the only one a CAD tool can act on. It is written on every run, including a run that changed nothing - an empty diff is an answer, a missing file is a question.
+
+It records, for the version produced and the version it came from:
+
+- every element the run touched, **by the id the host uses**, with its category, label and sheet;
+- per property: `before`, `after`, the tool that changed it, and the `plan_id` and `comment_id` behind it - a change that cannot name both is untraceable and must not be produced;
+- the geometry delta, so a reader can draw the highlight without opening the CAD tool;
+- the comments the run answered, each with its §14.1 status and evidence;
+- the constraints the run **moved** - resolved here, or regressed here - not every rule that already passed and still passes;
+- the flat list of element ids to highlight, because that is the one part a CAD tool consumes without parsing the rest.
+
+It is assembled from the change records the execution layer returned, not re-derived from geometry: those records are what the drawing itself reported after the change, and geometry that disagrees with them is a defect to surface, not a difference to smooth over.
+
+Against a live host (§12.3) the agent additionally asks the host to **select those elements in its own UI**, so the architect sees the diff highlighted in the CAD tool rather than only in a rendered preview. A host that cannot do it says so; the run continues, because the change set is the artefact that matters and highlighting is a courtesy.
 
 ---
 
@@ -1218,6 +1308,7 @@ The user must be able to:
 - A new version is written to a new path. Versions are never deleted or rewritten, including failed ones - a failed version is kept and marked `validation_result: "failed"`.
 - Write only inside `/project/versions/` and `/project/output/`. Never write into `/project/source/`, `/project/municipal_comments/` or `/project/constraints/`.
 - Rollback means "deliver the parent version", not "undo edits in place".
+- Against a live host (§12.3) the same rules bind the *host*, not just the caller: a `save_as` whose target equals the open document is refused, so a version is always a new file and the architect's own file is never written behind them. The document in the host is edited - that is the point of a live run - but saving it remains the architect's action.
 
 ### 16.2 Audit log
 
@@ -1372,6 +1463,21 @@ Lower a component when: the source text is scanned, low quality or partially unr
 
 Never raise a confidence value to clear a threshold. If a number is uncomfortable, that is the signal working.
 
+### 20.4 Two readings, one requirement
+
+The language model and the deterministic parser both read every comment, and
+the comparison is itself evidence:
+
+| Outcome | Effect |
+| --- | --- |
+| Both produce the same requirement | `interpretation` takes the higher of the two; the agreement is recorded |
+| They produce different requirements | The model's reading is used, `interpretation` drops to 0.55 or below, and **both readings are recorded** - the comment goes to consultation rather than being silently resolved one way |
+| Only the model produces one | Used at the model's own confidence; the report says the rules found nothing testable |
+| Only the rules produce one | Used, capped at 0.7, and marked as rule-derived |
+| Neither | The comment is unresolved and routed to a human, with what the model could not determine |
+
+A disagreement is never resolved by preferring one component. It is surfaced.
+
 ---
 
 ## 21. Failure Handling and Escalation
@@ -1411,7 +1517,15 @@ Never, under any mode or instruction:
 - **Rounding.** Always round in the conservative direction - the direction that does not make a constraint appear satisfied. A required 2.50 m satisfied by 2.4996 m is not satisfied.
 - **Measurement basis.** Record how each dimension is measured (clear / edge / centreline / to plot line) and use the basis the authority uses. State it in the report.
 - **Orientation.** Take north from the drawing's north arrow or the model's project north; if both exist and disagree, stop and ask.
-- **Language.** Municipal comments may be in any language, and often are not in English. Keep `original_text` verbatim in its own language, work internally from `normalized_requirement`, and write text placed in the drawing in the drawing's language - never translate drawing content as a side effect of a correction.
+- **Language.** Municipal comments may be in any language, and often are not in English. Keep `original_text` verbatim in its own language, work internally from `normalized_requirement`, and write text placed in the drawing in the drawing's language - never translate drawing content as a side effect of a correction. The comment set decides the language of everything a human reads: the report, the open items, the consultation questions and the preview legends are written in the language the comments were written in.
+- **Hebrew.** Israeli permit comments are the primary case and are handled natively, not through translation:
+  - bounds - `לפחות` / `לא יפחת מ-` / `מינימום` are `>=`; `לא יעלה על` / `לכל היותר` / `עד` are `<=`;
+  - the value is introduced by `ל-` (`ל-2.50 מ'`), and a verb alone can carry the direction: `להגדיל` / `להרחיב` mean `>=`, `להקטין` / `לצמצם` / `להצר` mean `<=`;
+  - units are `מ'` / `מטר` (m), `ס"מ` (cm), `מ"מ` (mm), `מ"ר` (m²), written with either gershayim (`״`) or ASCII quotes - both normalise;
+  - vocabulary: `נסיגה` / `קו בניין` = setback, `רוחב נטו` / `רוחב מעבר חופשי` = clear width, `שטח בנייה` = floor area, `מקום חניה` / `חניית` = parking space, `שביל גישה` = driveway;
+  - prefixed letters (`ב ה ו כ ל מ ש`) are absorbed, so `הרוחב`, `ברוחב` and `לרוחב` all read as `רוחב`;
+  - `1,850` is one thousand eight hundred and fifty; `2,50` is two and a half. Guessing wrong here puts a decimal point in a floor area, so the two forms are separated explicitly;
+  - reports render right-to-left, and numbers keep their Hebrew unit suffix (`2.50 מ'`, `1,850 מ"ר`).
 - **Drafting standards.** Preserve layer names, block names, text styles, dimension styles and sheet numbering. A correction never renames or reorganizes the drawing's structure.
 - **Element identity.** Preserve element ids and tags across versions so that changes can be tracked; a resized element is the same element, not a delete plus a create.
 
@@ -1432,6 +1546,8 @@ A run may be reported as complete only when all of the following hold:
 [ ] The original source file is byte-identical to its ingest checksum.
 [ ] A new immutable version exists with its version.json and audit log.
 [ ] Previews, comparison and highlighted change map are generated.
+[ ] A change set is written, and every entry in it names its comment and plan.
+[ ] Every comment routed to an unavailable adapter is an open item naming what is missing.
 [ ] The correction report lists resolved, partial, unresolved and open items honestly.
 [ ] Open items name what is needed and from whom.
 [ ] The sign-off block states that a licensed professional must approve.
@@ -1454,3 +1570,525 @@ Any unchecked item is stated at the top of the report as the reason the run is p
 | Degraded / markup mode | PDF-only operation: findings and instructions are produced, no model is edited. |
 | Regression | A constraint that passed before the change and fails after it. |
 | Version | An immutable saved state of the model with its manifest, audit log and validation result. |
+| Adapter | The layer that opens one kind of source - a live CAD host, a file, a document - and returns a driver honouring §12.1. |
+| Live host | A CAD program with the agent's add-in loaded, serving the document the architect currently has open. |
+| Change set (Diff) | The machine-readable record of what one run changed, by the host's own element ids (§13.3). |
+
+---
+
+## 25. Municipality-Aware Permit Knowledge Layer
+
+The core pipeline above (§1-24) reads comments, measures a drawing, and corrects it.
+A real municipal permit record needs one more layer on top: which requirements
+are even measurable, which review round superseded which, which need a document
+or a professional's signature rather than a drawing edit, and which discipline's
+finding forces a change in a different discipline's model. This section
+documents that layer, added to support a real Petah Tikva Municipality permit
+record without changing the invariant of §1: **the model interprets, the
+drawing measures.** Nothing here measures anything by itself; it organizes and
+gates what the rest of the pipeline already measures.
+
+This is an *extension* of the architecture above, not a second pipeline. Most of
+it is data and classification that rides alongside the existing comment/
+constraint/validation objects; only two things are wired into every run by
+default (requirement-type classification, and the cross-discipline dependency
+edges in §25.11) - everything else is a library a project or an authority
+profile opts into.
+
+### 25.1 Requirement types
+
+Not every comment is a measurable dimension. `archagent.models.RequirementType`
+classifies each comment into one of ten classes (`archagent.lang.requirement_types`),
+independently of whether it also carries a measurable `Requirement`:
+
+```text
+GEOMETRIC   DOCUMENT   EVIDENCE   APPROVAL   WORKFLOW_GATE
+ANNOTATION  DESIGN_DECISION   CALCULATION   INSPECTION   COMPLETION_CONDITION
+```
+
+Classification is deterministic keyword matching, ordered most-specific-first,
+the same "a pattern that doesn't match leaves it unclassified rather than
+guessed" discipline the rest of the parser follows. It runs on every comment
+in every run - `MunicipalComment.requirement_type` is `None` only for a plain
+statement ("noted", "נרשם") with no requirement in it at all.
+
+### 25.2 Permit lifecycle and supersession
+
+`archagent.lifecycle` reconstructs the *current* requirement state from a
+sequence of review rounds - the municipal record is not a flat comment list,
+it is a chronological workflow where later rounds sharpen, repeat, or replace
+earlier ones (`יש לתקן ניקוז` becomes `יש לספק מידות לשוחה` becomes `יש להראות
+בתכנית`: one requirement, not three).
+
+- `LifecycleTracker.ingest_round(comments, version)` - call once per round,
+  oldest first. It matches each new comment against the previous round
+  (`archagent.lifecycle.supersession`, a character-trigram Dice similarity,
+  gated by matching department) and either updates recency (near-identical
+  text carried forward unchanged) or supersedes the earlier requirement with
+  a new `RequirementLifecycle`.
+- `RequirementLifecycle.status` is one of `ACTIVE, RESOLVED, SUPERSEDED,
+  WAIVED, NOT_APPLICABLE, PENDING_EVIDENCE, PENDING_AUTHORITY, BLOCKED,
+  REQUIRES_HUMAN_REVIEW`. An old row marked resolved is never reopened by an
+  unrelated later round, and a superseded row is never read as still active.
+- `archagent.lifecycle.stages.PermitStage` is the ordered stage vocabulary
+  (`PRE_APPLICATION` ... `FORM_4`); each `RequirementLifecycle` can carry
+  `required_stage` / `blocking_stage` / `evidence_due_stage` so the agent
+  never demands evidence before its stage or declares the permit complete
+  before a later-stage condition (a post-construction acoustic measurement)
+  is even due.
+
+The similarity matcher is a deterministic fallback, not a claim of semantic
+understanding - the same "rules + optional LLM cross-check" pattern as the
+rest of the parser would apply here too if an LLM matcher is added later; none
+exists yet.
+
+`archagent.lifecycle.workflow_status(requirement, current_stage)` enforces
+the stage fields rather than just carrying them: it returns `NOT_YET_DUE`,
+`DUE`, `OVERDUE`, or `NOT_APPLICABLE` (a settled requirement, or one with no
+stage recorded). `blocking_requirements(...)` / `workflow_summary(...)`
+aggregate this across a project's requirements - the tool a submission-
+readiness check (§25.9) or a report uses to say "this cannot proceed to
+Start of Work yet" without re-deriving stage logic itself.
+
+Every `RequirementLifecycle` is also version-aware: `observed_in_version` is
+set once, at creation; `resolved_in_version` is set by
+`LifecycleTracker.resolve(requirement_id, version)`; `last_validated_version`
+is set by `LifecycleTracker.mark_validated(requirement_id, version)`, called
+whenever a new plan is checked against a requirement that was already open -
+so a caller can always answer "which version last confirmed this one still
+holds" without re-deriving it from the audit log.
+
+### 25.3 Authority profiles
+
+An authority profile is a municipality-specific rule pack - department names,
+terminology, evidence expectations, and project-sourced geometry examples -
+kept out of the generic parser so a new municipality is a new profile, not a
+change to `archagent.comments` or `archagent.constraints` (§4 of the Petah
+Tikva spec this section documents).
+
+`archagent.authority.load_authority(directory)` loads one profile from a YAML
+pack (needs PyYAML - `pip install archagent[authority]`); the bundled Petah
+Tikva profile lives at
+`.claude/skills/municipal-permit-review/authorities/petah-tikva/` and loads via
+`archagent.authority.petah_tikva.load()`. Its files:
+
+```text
+authority.yaml              departments, language, rtl
+disciplines.yaml            department -> canonical Archagent discipline
+terminology.yaml            Hebrew/English domain-term glossary
+comment_patterns.yaml       drainage/roads surface-form vocabulary
+stages.yaml                 stage vocabulary + this authority's own examples
+evidence_requirements.yaml  document type -> required stage + professional role
+geometry_rules.yaml         project-sourced numeric examples (NOT universal rules)
+test_cases/examples.yaml    labelled examples backing tests/test_authority_petah_tikva.py
+```
+
+**Every number in `geometry_rules.yaml` and every default in
+`evidence_requirements.yaml` is sourced to the supplied Petah Tikva project
+record.** None of it is a universal Israeli planning rule, and a new project
+must not inherit these values without its own authority/project source
+document - the profile pack is deliberately just data, so this is a content
+review, never a code change.
+
+### 25.4 Evidence, professional approval, and stricter resolution
+
+A requirement can need geometry, a document, a professional's sign-off, or
+several of those at once (`archagent.evidence`):
+
+- `Evidence` / `EvidenceStatus` / `PermitEvidenceChecker.check(...)` answer the
+  nine completeness questions of the spec (present? correct revision? signed?
+  right professional? current? this project? covers the element? authority
+  approval present? satisfied or only documented?) **only from evidence the
+  caller actually supplied** - a requirement with nothing supplied is
+  `MISSING`, never assumed fine.
+- `ProfessionalApproval` / `archagent.professionals.ApprovalTracker` track who
+  owns a requirement's sign-off, separately from whether its geometry passes.
+  `ProfessionalApprovalStatus` includes `EXPIRED` alongside `PENDING, PRESENT,
+  REJECTED, NOT_REQUIRED` - a lapsed sign-off is never read as still present.
+- Every `Evidence` carries extraction provenance: `page`, `region`,
+  `extraction_method` (defaults to `"manual"`), `confidence` (defaults to
+  `1.0`). A scanned document read by OCR should set these explicitly; a
+  manually-entered record's default confidence is not a claim about accuracy,
+  only that no automated extraction step introduced its own uncertainty.
+- `archagent.evidence.resolve(...)` computes `ResolutionState` -
+  `GEOMETRY_RESOLVED, EVIDENCE_RESOLVED, APPROVAL_RESOLVED, WORKFLOW_RESOLVED,
+  FULLY_RESOLVED` - and a requirement needing geometry *and* approval is
+  `FULLY_RESOLVED` only when both are satisfied. Geometry passing with the
+  professional deliverable still outstanding reports as "geometry corrected;
+  professional deliverable still required", never as resolved.
+- `archagent.evidence.graph.EvidenceGraph` records drawing-to-document
+  traceability paths (requirement -> element -> sheet -> document -> approval)
+  as explicit nodes/edges, read back with `.trace(requirement_id)` - never
+  inferred.
+
+None of this is wired into the default `CommentStatus` the orchestrator
+reports today (§14.1) - that vocabulary is unchanged. A project that needs
+`FULLY_RESOLVED`-style reporting composes these modules explicitly; see
+`tests/test_evidence.py` and `tests/test_petah_tikva.py` for worked examples.
+
+### 25.5 Traffic, site/drainage, environmental, and architecture semantic models
+
+Four data-model packages give traffic, civil/drainage, environmental, and
+architectural-envelope requirements their own objects instead of folding
+everything into generic dimensions:
+
+- `archagent.traffic` - `ParkingSpace`, `DriveAisle`, `Ramp`, `TurningPath`,
+  `ParkingBalance`. `parking.reconcile_balance(...)` compares the parking
+  *schedule* against *actually-drawn* spaces and flags every discrepancy -
+  "never trust the parking table alone" is enforced, not just stated.
+  `turning.turning_path_points(...)` produces real inner/outer arc geometry
+  (not a text match on a radius number); `clearance.check_clearances(...)`
+  measures column/wall obstructions against a drive-path edge as 2D
+  point-to-segment distance; `ramp.validate_ramp_slope(...)` checks a ramp's
+  grade (derived from elevations + length when not given directly) and width
+  independently, reporting "no slope could be measured" rather than
+  fabricating one when neither is available.
+- `archagent.site` - a discipline-neutral topology (`SiteElement`,
+  `SiteRelation` for `drains_to` / `overflows_to` / `crosses` / `references` /
+  `connects_to`), typed `Road`/`Sidewalk`/`Curb` (dropped/mountable, by
+  `kind`) and `Pipe` (diameter, length, invert levels, `pipe_slope(...)`) for
+  the objects the record's comments name numbers for, an `ElevationGraph`
+  with real slope calculation (`Δz / horizontal_distance`) and a
+  `cross_section()` longitudinal profile (station vs elevation), and
+  `archagent.site.drainage` - a graph-based drainage network validator:
+  coverage, flow direction, elevation consistency, capacity evidence (via
+  `PermitEvidenceChecker` - never invents a hydraulic capacity), the
+  municipal-drainage-line 2 m setback as an explicit *conditional* rule
+  (waived only when a diversion solution is submitted), and
+  `chamber_volume(node)` - real rectangular/cylindrical volume from given
+  chamber dimensions, explicitly *not* a hydraulic-capacity claim (whether
+  that volume suffices for the design flow stays an evidence question, never
+  computed here).
+- `archagent.environment` - `SensitiveRoom`, `AirEmissionSource`,
+  `RadiationReport`, `EVChargingPoint`, etc., with checks lifted directly from
+  the spec's own test examples (no living-room window facing a ramp, the
+  air-quality assessment covering parking + generator + commercial sources,
+  the radiation report containing background + forecast + shielding, EV
+  charging reaching every parking space).
+
+- `archagent.architecture` - `Facade`, `FacadePanel`, `Balcony`, `Railing`,
+  `Louver`, `Pergola`, `Screen`, `ElevationDetail` for the building-envelope
+  comments (cladding colour, pergola/screen slat spacing, balcony railings)
+  that are not ordinary room/wall dimensions. Its landscape/development
+  validators - `validate_area_ratio` (landscaping share, permeable area),
+  `validate_soil_depth`, `validate_distance_to_plot_boundary`,
+  `validate_site_level_difference` - are pure functions over already-measured
+  numbers, the same pattern as `traffic.parking.reconcile_balance`: a ratio of
+  two areas is a composite check the single-metric `Requirement`/
+  `ConstraintLedger` comparison does not compute by itself, so it is not
+  duplicated logic, it is the one thing on top of it spec §5.2 asks for.
+
+**What this is not:** a live Civil 3D reader. `archagent.site.surfaces.Surface`
+is a point-cloud of surveyed spot elevations with nearest-neighbour lookup,
+explicitly *not* a triangulated surface - Civil 3D-native objects (Alignment,
+Profile, Surface/TIN, Corridor, PipeNetwork, Parcel, ...) are not read by any
+adapter yet. Do not present this layer's data model as equivalent to reading
+a real Civil 3D drawing; see §25.13. Nor is any of this a facade-recognition
+tool: `Facade`/`FacadePanel`/etc. are records a caller populates from a
+drawing or a document, not something extracted automatically from a Revit
+elevation view.
+
+The DXF adapter's existing layer-name semantic classification
+(`archagent.drawing.dxf_model.LAYER_CATEGORIES` - this predates this layer;
+it already read `A-PARK` → parking, `A-BLDG` → building, etc.) is extended
+with `MUNI`/`CHAMBER`/`MANHOLE`/`DRAIN`/`CURB`/`RAMP`/`TREE`/`PLNT` keywords
+so a civil/landscape DXF layer resolves to `municipal_drain`,
+`drainage_chamber`, `catch_basin`, `drainage_pipe`, `curb`, `ramp`, `tree`,
+`landscape_zone` the same way an architectural one already did - kept in
+sync in the AutoCAD add-in's C# (`autocad-addin/src/EntityView.cs`, unbuilt/
+unverified there like the rest of that add-in). This is real heuristic
+classification from layer-naming convention, still not the semantic
+understanding of a live Civil 3D session - see §25.13.
+
+`archagent.drawing.ifc_model.read_ifc(...)` is a minimal, dependency-free
+reader for IFC's STEP/SPF text format: entity type + GlobalId + Name only, no
+geometry, no property sets, no round-trip, and **not wired into
+`archagent.adapters`** - opening an `.ifc` file still only means the input
+manifest recognises the extension, not that a live driver exists for it. This
+is an honest partial answer to "IFC import": real BIM round-trip needs either
+`ifcopenshell` or substantially more engineering than this reader attempts.
+
+### 25.6 Conditional requirements
+
+`archagent.conditional.Condition` / `ConditionalRequirement` turn prose like
+"if a municipal drainage line crosses the plot, survey it, show it, and keep
+a 2 m setback; otherwise do nothing" into structured, executable logic instead
+of a comment the agent re-reads as English every time:
+
+```python
+Condition.exists("municipal_drainage_line_on_plot")
+Condition.compare("building_height", ">", 60)
+Condition.any_of(Condition.compare("project_type", "==", "public"),
+                 Condition.compare("project_type", "==", "commercial"))
+```
+
+`Condition.from_dict(...)` / `ConditionalRequirement.from_dict(...)` parse the
+exact `condition: / then: / else:` YAML shape the spec itself uses, so an
+authority profile can carry conditions as data. `evaluate(condition, facts)`
+never invents a fact: an absent key reads as falsy, not "unknown, so true".
+This is the general engine; the drainage 2 m setback rule in
+`archagent.site.drainage.validate_municipal_line_setback` is a plain geometry
+check that stays as it was - the two compose (a `ConditionalRequirement`
+decides *whether* the rule applies; the drainage validator still does the
+actual distance measurement).
+
+`archagent.lang.spatial` recognises the rest of spec §17/§26's vocabulary as a
+classifier, not as new Requirement-producing parser rules:
+`intercardinal_direction_of(text)` (`צפון-מערב` etc.),
+`spatial_relations_in(text)` (`מעל / מתחת / בצמוד / לפני / אחרי / מכיוון /
+לכיוון / מחוץ למגרש / בתוך תחום המגרש / משפת הנסיעה / מקו התיעול`), and
+`looks_conditional(text)` (`אם / כאשר / במידה ו... / במקרה של...`) - the last
+one is exactly the signal for "this comment is a `ConditionalRequirement`
+candidate, model it as one instead of a flat rule." These are deliberately
+kept **out of** `archagent.lang.hebrew.HEBREW.directions`: that dict feeds
+straight into `Requirement.subject["edge"]` and from there into
+`archagent.drawing.geometry`, which only has axes for the four cardinal
+directions - an intercardinal value flowing through there would not fail
+gracefully, it would raise inside measurement. So compound directions are
+recognised, never fed into the deterministic setback parser.
+
+**Not yet built:** a Hebrew parser that reads `אם / כאשר / במידה ו...` prose
+and produces a `Condition` automatically - `looks_conditional(...)` flags
+that a comment is conditional; turning its actual clause into a structured
+`Condition` is still constructed programmatically or from structured data,
+not extracted from free text.
+
+### 25.7 Trees and external infrastructure
+
+`archagent.site.trees.Tree` (species, trunk diameter, canopy, preservation
+status/radius, removal status, replacement requirement, authority license)
+plus `validate_preservation_radius(tree, works)`, which flags any planned work
+point inside a tree's radius - but only once `preservation_status == "preserve"`
+is actually recorded; an unassessed tree enforces nothing, because that
+assessment is the forestry officer's record to make, not this code's to guess.
+
+`archagent.infrastructure.ExternalInfrastructureRequirement` is one generic
+record (asset_type, location, owner, action, approval, relocation, burial,
+payment, evidence) for electricity, lighting, communication cabinets, utility
+poles, NTA, RMI, the airport authority, the Ministry of Defense, and whatever
+the next project's record names that this one didn't - a new owner is new
+data, never a new class. `needs_owner_approval(...)` is true for any
+relocation or burial: geometry fitting is never enough by itself.
+
+### 25.8 Multi-disciplinary planning alternatives
+
+`archagent.planning_alternatives.MultiDisciplinaryPlan` /
+`PlanningAlternative` structure the comparison the spec asks for when more
+than one discipline could resolve the same finding - move the architectural
+wall, divert the drainage line, redesign the drainage solution - each option
+carrying its impacted disciplines, consultant ownership, whether it needs
+authority approval, and a risk level. `drainage_setback_alternatives(...)`
+builds the spec's own worked example. **`recommended_option_id` is left blank
+by the constructor on purpose** - picking a winner is a consultation/human
+decision, never something the planner sets for itself, per the explicit rule
+"do not automatically modify architecture when another discipline owns the
+constraint." This is a comparison structure a consultation flow or report can
+present; it does not yet replace or extend the existing `Planner`/
+`ConsultationAgent` single-discipline alternative-plan mechanism (§9.1, §10),
+which is unchanged.
+
+### 25.9 Submission readiness
+
+`archagent.readiness.assess_submission_readiness(...)` is the final
+deterministic gate of spec §24/§47: `READY_FOR_PROFESSIONAL_REVIEW`,
+`NOT_READY`, or `BLOCKED`, from whatever the caller supplies (the
+orchestrator's own validation result, open authority gates, missing evidence,
+pending professional approvals, un-revalidated cross-discipline impacts,
+silently dropped active requirements). A failed validation or a dropped active
+requirement always reports `BLOCKED`, which outranks `NOT_READY`. **This is
+not wired into `Orchestrator.run()`** - it is a library function a caller
+composes the inputs for, the same as the evidence/resolution modules in
+§25.4. `archagent.readiness.DISCLAIMER` is the exact text any caller showing a
+`READY_FOR_PROFESSIONAL_REVIEW` result should display alongside it: it is not,
+and must never be presented as, a legal authority approval.
+
+### 25.10 Sheets and revisions
+
+`archagent.sheets.Sheet` / `SheetIndex` track which sheet a finding belongs to
+(`A-101`, `A-TR-02`, `DR-01`) and which revision is current, the same
+"never assume the newest is the only one that ever existed" caution the
+lifecycle tracker applies to comments, applied to drawing sheets.
+`archagent.sheets.Revision` is a separate changelog entry (who changed a
+sheet, when, why) - a `Sheet` only ever carries its current revision label;
+`SheetIndex.add_revision_note(...)` / `.notes_for(sheet_number)` keep the
+history of *why* it changed alongside the sheet objects themselves.
+
+### 25.11 Cross-discipline dependency graph
+
+`archagent.graph.build_graph(plans, constraints, driver, comments=())` takes an
+optional `comments` argument (backward compatible - the orchestrator now
+always passes it). When a `civil` (roads/drainage) comment is present in a run
+alongside `architecture`, `landscape`, `traffic`, or `structure` comments, it
+adds a `discipline` node per discipline present and a `constrains` edge from
+`civil` to each of the others (`CROSS_DISCIPLINE_DEPENDENCIES` in
+`archagent.graph`), recording that a municipal drainage line's setback *can*
+force a change in those disciplines even though no comment yet names a
+specific element there.
+
+**Important limit, stated plainly:** these `discipline` nodes are not
+connected to any `comment`/`plan`/`element` node - they are their own small,
+separate subgraph, added purely for the merged graph a report reads
+(`result.graph`, the dependency-graph JSON artefact). `impact_set(...)`,
+which decides what actually gets re-validated after a change, walks only from
+`plan.plan_id` nodes (`graph.reachable(plan.plan_id)`) and never reaches a
+`discipline` node, so **this does not yet cause a civil-discipline change to
+trigger re-validation of architecture/landscape/traffic/structure
+constraints**. What exists today is a recorded, reportable fact ("these
+disciplines are both present and civil is known to constrain the others");
+an actual cross-discipline re-validation engine - wiring `discipline` nodes
+into the reachability graph plans/elements use, or re-running the other
+scopes' `ConstraintLedger.evaluate(...)` whenever a civil plan executes - is
+not built. Do not read §25.11 as "cross-discipline validation is
+implemented"; see §25.13.
+
+**What was built instead, because the graph genuinely cannot do this:**
+`archagent.cross_source.check_cross_source_clearance(scopes, rules)`. Two
+disciplines' drawings are different files opened by different adapters -
+there is no driver that holds both a civil DWG's municipal drainage line and
+an architecture model's basement wall, so nothing about the dependency graph
+can measure a distance between them. What a real project *does* share is one
+site coordinate system, so this reads each open source's own `elements()`
+directly and compares centre-to-centre distance across every pair of scopes,
+for element-type rules such as the record's own municipal-drain/wall 2 m
+example (`DEFAULT_RULES`). Wired into `Orchestrator.run()` -
+`result.cross_source_conflicts`, one open item per violation (naming both
+elements and both sources), surfaced in the run payload for the Web Editor.
+Proven end-to-end in `tests/test_cross_source_orchestrator.py`, not just as a
+standalone function. This is real geometric conflict detection across
+sources; it is not the same thing as re-validating a *constraint* in another
+discipline (still not built, per the limit above), and its distance is
+centre-to-centre (coarser than a single driver's own edge-to-edge
+`calculate_distance`), since no shared API spans two independent files.
+
+### 25.12 The Web Editor
+
+The existing Web Editor (§2, `archagent/web/`) is unchanged in structure - no
+route, page, or ChangeSet consumer was rebuilt. It was extended additively:
+`payload.run_payload(...)` now includes `requirement_type`,
+`requirement_type_label` (localised via `Messages.requirement_type(...)`,
+Hebrew and English) and `discipline` on every comment entry, and the comments
+panel in `static/app.js` shows the requirement-type label as one more `.tag`
+pill next to the existing department tag - reusing the existing neutral tag
+style, never one of the reserved status colours (§13.1). Evidence/approval
+references and cross-discipline impact highlighting are **not yet built** -
+§25.4's evidence graph and §25.11's discipline nodes are the data those
+would render from, but no frontend consumes them yet.
+
+**Manual editing** now exists (`archagent.manual_edit`): a second, parallel
+control surface onto the *same* `DrawingDriver` mutation primitives
+(`move_element`/`resize_element`/`delete_element`) `ExecutionAgent` already
+uses for comment-driven corrections - nothing new was needed at the driver
+level, only a direct path to them for a human decision instead of a
+municipal comment. Three endpoints (`GET .../versions`, `GET .../model`,
+`POST .../edit`) and a new `ModelEditor` class in `app.js` (an "עריכת מודל"
+button next to the run-launch button) give select/move/delete with a
+version selector that doubles as undo/redo - selecting an earlier version
+and editing from there forks a new version rather than rewriting history,
+consistent with the immutable-versioning invariant everywhere else in this
+skill. `PlanViewer` (the results before/after viewer) was not modified;
+`ModelEditor` is its own class that happens to reuse the same canvas
+transform math. Verified end-to-end in a real headless-Chromium session, not
+just at the API level - see `tests/test_manual_edit.py` and
+`tests/test_web_manual_edit.py`. Scope: this edits a project's JSON model
+file, the same file every example/demo project in this repository already
+uses - it does not reach into a live Revit/AutoCAD session (§12.3). Movement
+is by a fixed, selectable step (grid-snapped, not freehand pixel dragging);
+resize exists at the driver/API level with no UI control yet; there is no
+"create a new element" UI.
+
+### 25.13 Honest capability boundaries
+
+Per the implementation instructions this layer was built against: do not
+overclaim, never fabricate an approval or a measurement, and state plainly
+what is not done.
+
+- **Implemented and tested:** requirement-type classification; permit
+  lifecycle/supersession with version-aware fields (`observed_in_version` /
+  `resolved_in_version` / `last_validated_version`); stage-aware workflow
+  enforcement (`workflow_status`/`blocking_requirements`); the Petah Tikva
+  authority profile pack; the evidence/approval model (with extraction
+  provenance - `page`/`region`/`extraction_method`/`confidence` - and an
+  `EXPIRED` professional-approval status) and its checker; stricter
+  resolution semantics; a general structured `ConditionalRequirement` engine;
+  the tree/forestry model; the generic external-infrastructure requirement
+  record; traffic parking/turning/clearance/ramp-slope data models and
+  validators; typed `Pipe`/`Road`/`Sidewalk`/`Curb` site objects and their
+  validators; drainage chamber volume (`chamber_volume`, real geometry, never
+  a hydraulic-capacity claim); an elevation cross-section/profile export
+  (`ElevationGraph.cross_section()`); the environmental semantic model and
+  its spec-example checks; the architecture envelope model
+  (`Facade`/`Balcony`/`Pergola`/`Screen`/etc.) and its landscape/development
+  ratio validators; Hebrew directional/spatial/conditional vocabulary
+  recognition (`archagent.lang.spatial`); sheet tracking plus a dedicated
+  `Revision` changelog; **real cross-source geometric conflict detection**
+  across two independently-opened drivers (`archagent.cross_source`, wired
+  into `Orchestrator.run()`, proven end-to-end - see §25.11); civil/landscape
+  DXF layer-name classification (extends the pre-existing architectural one);
+  a minimal read-only IFC (STEP/SPF) entity reader; the submission-readiness
+  gate; the multi-disciplinary planning-alternatives structure;
+  requirement-type surfaced in the Web Editor payload and UI; **manual
+  editing in the Web Editor** (select/move/delete with an undo/redo-capable
+  version selector, verified in a real browser - see §25.12); a Petah Tikva
+  regression corpus 3x its original size (`tests/fixtures/petah_tikva/`, 40
+  labelled comments plus a two-lineage lifecycle sequence) and an
+  end-to-end fixture project (`examples/project_petah_tikva/`,
+  `tests/test_petah_tikva.py`); one deterministic-parser false positive found
+  while building that corpus, disclosed and pinned down as a regression test
+  rather than silently worked around (`tests/test_known_limitations.py`).
+- **Partially implemented:** Hebrew conditional-language *detection*
+  (`archagent.lang.spatial.looks_conditional`) flags that a comment reads as
+  conditional, but does not extract its clause into a `Condition`
+  automatically - the engine and the detector both exist, the piece that
+  connects them (turning `אם X, אז Y` prose into a populated
+  `ConditionalRequirement`) does not; the submission-readiness gate and the
+  planning-alternatives structure are library functions a caller composes,
+  not wired into `Orchestrator.run()` or the Web Editor UI yet; intercardinal
+  directions (`צפון-מערב`) are recognised by `archagent.lang.spatial` but
+  deliberately not fed into the deterministic setback parser, whose geometry
+  engine only has axes for the four cardinal directions; manual editing in
+  the Web Editor covers move (fixed, selectable step - grid-snapped, not
+  freehand pixel dragging) and delete with real UI, while resize exists at
+  the driver/API level with no UI control yet, and there is no "create a new
+  element" UI at all.
+- **Not implemented:** an actual cross-discipline **constraint validation**
+  engine - the `discipline` nodes of §25.11 record that civil constrains
+  architecture/landscape/traffic/structure, but are not wired into
+  `impact_set(...)`, so a civil-discipline change does not yet trigger
+  re-validation of another discipline's *constraints* (§25.11's
+  `cross_source` module is real geometric conflict detection, a different
+  and narrower thing - see there for the distinction); any 3D solid model
+  (the elevation graph and its cross-section are a 1D/2D chain of named
+  points, not a volumetric model); automatic parking-schedule extraction
+  from a drawing (reconciliation exists, but nothing yet reads a schedule
+  table into a `ParkingBalance` automatically); the professional/document
+  extractor that would populate `Evidence` records from an actual PDF
+  (`archagent.evidence.extractor` from the spec's module list does not
+  exist - PDFs are still read/markup only, per §3.3, though `Evidence` now
+  has the `page`/`region`/`extraction_method`/`confidence` fields such an
+  extractor would populate); an authority-profile-aware router (routing
+  still uses the generic department/discipline table, not the authority
+  profile's `disciplines.yaml`, though both agree for Petah Tikva);
+  evidence/approval references and cross-discipline highlighting in the Web
+  Editor UI (§25.12); multi-municipality dashboards; automated professional
+  report generation; historical learning from resolved comments.
+- **Requires external CAD capability, not provided here:** any live reading
+  of Civil 3D-native objects (Alignment, Profile, Corridor, PipeNetwork,
+  Parcel, TIN Surface) - the AutoCAD/Civil 3D adapter still operates on plain
+  DXF entities, exactly as documented in §12.3-12.4, and this extension does
+  not change that (though its layer-name classification now covers
+  civil/landscape keywords too - see §25.5). `archagent.site` and
+  `archagent.traffic` model the *domain*, not a Civil 3D reader; feeding them
+  requires either manual data entry or a future Civil 3D-native adapter. Real
+  IFC round-trip (not the minimal read-only entity reader this layer adds)
+  needs either `ifcopenshell` or substantially more engineering. Manual
+  editing in the Web Editor reaches a project's JSON model file, never a
+  live Revit/AutoCAD session - that still goes through the tool's own
+  add-in (§12.3).
+- **Requires professional approval, always:** every geometry number this
+  layer helps organize is still a proposal under §1.2/§16 - none of this
+  layer's outputs (a `FULLY_RESOLVED` state, a `READY_FOR_PROFESSIONAL_REVIEW`
+  gate, a professional's `approval_status`) is or claims to be a legal
+  authority approval. The system may report "meets the modelled requirement"
+  or "evidence found" or "professional approval present [in the record we
+  were given]" - never "approved by the municipality" unless an actual
+  authority approval document was supplied as `Evidence`.

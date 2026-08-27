@@ -1,0 +1,33 @@
+# Drainage/roads-specific Hebrew comment-pattern vocabulary (spec §13).
+# These are the surface forms the deterministic parser should recognise
+# without necessarily being able to turn every one into a single measurable
+# number - some are workflow/document/evidence language, not geometry. The
+# parser normalises Hebrew variants but always preserves the original comment
+# verbatim (SKILL.md 5.2).
+- "אבן שפה מונמכת"
+- "אבן עליה רכב"
+- "שיפוע המדרכה"
+- "גבהים"
+- "כניסה למרתף"
+- "רמפה"
+- "מתקני ניקוז"
+- "מי גשם"
+- "תיעול"
+- "קו תיעול עירוני"
+- "שוחת השהייה"
+- "שוחת שיקוע"
+- "יציאת עודפים"
+- "קו בנין"
+- "קיר מרתף"
+- "הטיית קו תיעול"
+- "מפה טופוגרפית"
+- "דוח הידרולוג"
+- "נפח"
+- "חתך"
+- "קוטר"
+- "עומק"
+- "עומק תפעולי"
+- "אורך"
+- "רוחב"
+- "I.L."
+- "ת.ב."

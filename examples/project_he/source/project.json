@@ -1,0 +1,202 @@
+{
+  "project_id": "riverside-12",
+  "units": "m",
+  "north": "+y",
+  "site": {
+    "plot": {
+      "kind": "rect",
+      "x": 0.0,
+      "y": 0.0,
+      "w": 40.0,
+      "h": 30.0
+    },
+    "plot_number": "12/4",
+    "zoning": "XYZ/123"
+  },
+  "sheets": [
+    {
+      "id": "A-101",
+      "name": "תוכנית קומת קרקע"
+    },
+    {
+      "id": "A-201",
+      "name": "חזית צפונית"
+    }
+  ],
+  "elements": [
+    {
+      "id": "building",
+      "type": "building",
+      "label": "בניין מגורים",
+      "layer": "A-BLDG",
+      "level": "Ground Floor",
+      "sheet": "A-101",
+      "geometry": {
+        "kind": "rect",
+        "x": 5.0,
+        "y": 20.0,
+        "w": 20.0,
+        "h": 7.4
+      },
+      "properties": {
+        "width_axis": "x",
+        "anchor": "south_west",
+        "counts_as_floor_area": true,
+        "floor_area_factor": 12,
+        "storeys": 12,
+        "consultant": "architecture"
+      }
+    },
+    {
+      "id": "parking_p11",
+      "type": "parking",
+      "label": "P11",
+      "layer": "A-PARK",
+      "level": "Ground Floor",
+      "sheet": "A-101",
+      "geometry": {
+        "kind": "rect",
+        "x": 6.0,
+        "y": 2.0,
+        "w": 2.4,
+        "h": 5.0
+      },
+      "properties": {
+        "width_axis": "x",
+        "anchor": "south_west",
+        "approved": true,
+        "category": "resident",
+        "related_elements": [
+          "parking_p12"
+        ]
+      }
+    },
+    {
+      "id": "parking_p12",
+      "type": "parking",
+      "label": "P12",
+      "layer": "A-PARK",
+      "level": "Ground Floor",
+      "sheet": "A-101",
+      "geometry": {
+        "kind": "rect",
+        "x": 8.5,
+        "y": 2.0,
+        "w": 2.4,
+        "h": 5.0
+      },
+      "properties": {
+        "width_axis": "x",
+        "anchor": "south_west",
+        "category": "resident",
+        "related_elements": [
+          "parking_p11",
+          "parking_p13"
+        ]
+      }
+    },
+    {
+      "id": "parking_p13",
+      "type": "parking",
+      "label": "P13",
+      "layer": "A-PARK",
+      "level": "Ground Floor",
+      "sheet": "A-101",
+      "geometry": {
+        "kind": "rect",
+        "x": 10.9,
+        "y": 2.0,
+        "w": 2.4,
+        "h": 5.0
+      },
+      "properties": {
+        "width_axis": "x",
+        "anchor": "south_west",
+        "approved": true,
+        "category": "visitor",
+        "related_elements": [
+          "parking_p12"
+        ]
+      }
+    },
+    {
+      "id": "driveway",
+      "type": "driveway",
+      "label": "שביל גישה",
+      "layer": "A-ROAD",
+      "level": "Ground Floor",
+      "sheet": "A-101",
+      "geometry": {
+        "kind": "rect",
+        "x": 6.0,
+        "y": 7.2,
+        "w": 20.0,
+        "h": 6.0
+      },
+      "properties": {
+        "width_axis": "y",
+        "anchor": "south_west",
+        "consultant": "traffic"
+      }
+    },
+    {
+      "id": "dim_p12_width",
+      "type": "dimension",
+      "label": "רוחב P12",
+      "layer": "A-DIMS",
+      "level": "Ground Floor",
+      "sheet": "A-101",
+      "text": "2.40",
+      "geometry": {
+        "kind": "rect",
+        "x": 8.5,
+        "y": 1.2,
+        "w": 2.4,
+        "h": 0.3
+      },
+      "properties": {
+        "value": 2.4,
+        "measures": {
+          "element_id": "parking_p12",
+          "parameter": "width"
+        }
+      }
+    }
+  ],
+  "schedules": {
+    "parking_table": {
+      "title": "טבלת חניות",
+      "sheet": "A-101",
+      "source": {
+        "type": "parking"
+      },
+      "fields": {
+        "Mark": "label",
+        "Width": "width",
+        "Length": "length",
+        "Category": "category"
+      },
+      "rows": [
+        {
+          "Mark": "P11",
+          "Width": 2.4,
+          "Length": 5.0,
+          "Category": "resident"
+        },
+        {
+          "Mark": "P12",
+          "Width": 2.4,
+          "Length": 5.0,
+          "Category": "resident"
+        },
+        {
+          "Mark": "P13",
+          "Width": 2.4,
+          "Length": 5.0,
+          "Category": "visitor"
+        }
+      ],
+      "total": 3
+    }
+  }
+}

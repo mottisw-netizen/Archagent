@@ -1,0 +1,17 @@
+# A handful of labelled examples from the supplied Petah Tikva record, used
+# by tests/test_authority_petah_tikva.py to check the profile loads and that
+# its comment_patterns/terminology actually match real comment text. The full
+# regression corpus (spec §40) lives under tests/fixtures/petah_tikva/, not
+# here - this file is about the profile pack itself, not the whole pipeline.
+- text: "יש לצרף דוח הידרולוג"
+  department: roads_drainage
+  expected_pattern: "דוח הידרולוג"
+- text: "יש לשמור על מרחק של 2 מ' מקו תיעול עירוני"
+  department: roads_drainage
+  expected_pattern: "קו תיעול עירוני"
+- text: "יש לסמן את שוחת השהייה בתכנית הפיתוח"
+  department: roads_drainage
+  expected_pattern: "שוחת השהייה"
+- text: "אבן שפה מונמכת בכניסה לחניון"
+  department: roads_drainage
+  expected_pattern: "אבן שפה מונמכת"
