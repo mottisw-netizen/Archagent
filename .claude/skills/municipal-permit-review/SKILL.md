@@ -1891,10 +1891,25 @@ always passes it). When a `civil` (roads/drainage) comment is present in a run
 alongside `architecture`, `landscape`, `traffic`, or `structure` comments, it
 adds a `discipline` node per discipline present and a `constrains` edge from
 `civil` to each of the others (`CROSS_DISCIPLINE_DEPENDENCIES` in
-`archagent.graph`) - a municipal drainage line's 2 m setback can force an
-architectural wall to move even though no comment yet names that wall. This is
-in addition to the existing comment/element/constraint edges, never a
-replacement for them.
+`archagent.graph`), recording that a municipal drainage line's setback *can*
+force a change in those disciplines even though no comment yet names a
+specific element there.
+
+**Important limit, stated plainly:** these `discipline` nodes are not
+connected to any `comment`/`plan`/`element` node - they are their own small,
+separate subgraph, added purely for the merged graph a report reads
+(`result.graph`, the dependency-graph JSON artefact). `impact_set(...)`,
+which decides what actually gets re-validated after a change, walks only from
+`plan.plan_id` nodes (`graph.reachable(plan.plan_id)`) and never reaches a
+`discipline` node, so **this does not yet cause a civil-discipline change to
+trigger re-validation of architecture/landscape/traffic/structure
+constraints**. What exists today is a recorded, reportable fact ("these
+disciplines are both present and civil is known to constrain the others");
+an actual cross-discipline re-validation engine - wiring `discipline` nodes
+into the reachability graph plans/elements use, or re-running the other
+scopes' `ConstraintLedger.evaluate(...)` whenever a civil plan executes - is
+not built. Do not read §25.11 as "cross-discipline validation is
+implemented"; see §25.13.
 
 ### 25.12 The Web Editor
 
@@ -1932,9 +1947,10 @@ what is not done.
   envelope model (`Facade`/`Balcony`/`Pergola`/`Screen`/etc.) and its
   landscape/development ratio validators; Hebrew directional/spatial/
   conditional vocabulary recognition (`archagent.lang.spatial`); sheet
-  tracking plus a dedicated `Revision` changelog; the cross-discipline
-  dependency graph extension; the submission-readiness gate; the
-  multi-disciplinary planning-alternatives structure; requirement-type
+  tracking plus a dedicated `Revision` changelog; discipline nodes/edges
+  recorded in the merged dependency graph (reportable, see the limit noted
+  in §25.11); the submission-readiness gate; the multi-disciplinary
+  planning-alternatives structure; requirement-type
   surfaced in the Web Editor payload and UI; a Petah Tikva regression corpus
   (`tests/fixtures/petah_tikva/`) and an end-to-end fixture project
   (`examples/project_petah_tikva/`, `tests/test_petah_tikva.py`).
@@ -1949,19 +1965,40 @@ what is not done.
   directions (`צפון-מערב`) are recognised by `archagent.lang.spatial` but
   deliberately not fed into the deterministic setback parser, whose geometry
   engine only has axes for the four cardinal directions.
-- **Not implemented:** automatic parking-schedule extraction from a drawing
-  (reconciliation exists, but nothing yet reads a schedule table into a
-  `ParkingBalance` automatically); the professional/document extractor that
-  would populate `Evidence` records from an actual PDF
-  (`archagent.evidence.extractor` from the spec's module list does not exist -
-  PDFs are still read/markup only, per §3.3, though `Evidence` now has the
-  `page`/`region`/`extraction_method`/`confidence` fields such an extractor
-  would populate); an authority-profile-aware router (routing still uses the
-  generic department/discipline table, not the authority profile's
-  `disciplines.yaml`, though both agree for Petah Tikva); evidence/approval
-  references and cross-discipline highlighting in the Web Editor UI
-  (§25.12); multi-municipality dashboards; automated professional report
-  generation; historical learning from resolved comments.
+- **Not implemented:** an actual cross-discipline **validation** engine - the
+  `discipline` nodes of §25.11 record that civil constrains architecture/
+  landscape/traffic/structure, but are not wired into `impact_set(...)`, so a
+  civil-discipline change does not yet trigger re-validation of another
+  discipline's constraints; a manual dimension-editing UI in the Web Editor
+  (move/create/delete/resize, snapping, undo/redo - the existing UI is a
+  review/consultation surface, changes are made through the plan/execute/
+  ChangeSet pipeline, never by dragging a shape in the browser); any 3D
+  model, cross-section, or volume calculation (the elevation graph is a 1D
+  chain of named points and slopes between them, not a 3D model; a drainage
+  chamber's volume/`נפח` is recognised only as parser vocabulary, never
+  computed); IFC import/export (`.ifc` is recognised as a filename extension
+  in the input manifest, nothing more - no IFC parser exists); a dedicated
+  `Pipe`/typed drainage-pipe object (`"drainage_pipe"` is a generic
+  `SiteElement` kind with no diameter/invert-level fields of its own); a
+  slope/grade validator specific to `Ramp` (the dataclass has a `slope`
+  field; nothing checks it against a required grade); automatic
+  parking-schedule extraction from a drawing (reconciliation exists, but
+  nothing yet reads a schedule table into a `ParkingBalance` automatically);
+  the professional/document extractor that would populate `Evidence` records
+  from an actual PDF (`archagent.evidence.extractor` from the spec's module
+  list does not exist - PDFs are still read/markup only, per §3.3, though
+  `Evidence` now has the `page`/`region`/`extraction_method`/`confidence`
+  fields such an extractor would populate); an authority-profile-aware router
+  (routing still uses the generic department/discipline table, not the
+  authority profile's `disciplines.yaml`, though both agree for Petah Tikva);
+  evidence/approval references and cross-discipline highlighting in the Web
+  Editor UI (§25.12); multi-municipality dashboards; automated professional
+  report generation; historical learning from resolved comments.
+- **Regression corpus size, stated plainly:** `tests/fixtures/petah_tikva/`
+  covers 13 labelled comments plus a 4-round lifecycle sequence, drawn from
+  the supplied Petah Tikva record's own examples - enough to test each
+  capability above at least once, but nowhere near "many municipality files."
+  It is a seed corpus to extend, not a large-scale benchmark.
 - **Requires external CAD capability, not provided here:** any live reading
   of Civil 3D-native objects (Alignment, Profile, Corridor, PipeNetwork,
   Parcel, TIN Surface) - the AutoCAD/Civil 3D adapter still operates on plain
