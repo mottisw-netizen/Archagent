@@ -83,6 +83,10 @@ def test_an_unconfirmed_standard_is_sourced_and_prioritised_honestly():
     assert constraint.source == "Reference"
     assert constraint.priority is Priority.MEDIUM
     assert constraint.confidence < 1.0
+    # The project owner asked for this explicitly: an unverified source must
+    # be flagged prominently in the report a human reads, at the front of
+    # the rule text, not buried in metadata a report table might not show.
+    assert constraint.rule.startswith("⚠")
 
 
 def test_a_guideline_standard_ranks_above_unconfirmed_but_below_statute():
@@ -92,16 +96,26 @@ def test_a_guideline_standard_ranks_above_unconfirmed_but_below_statute():
     statute, but never lumped in with a merely-plausible unconfirmed guess
     either."""
     assert DRIVEWAY_MIN_WIDTH_ONE_WAY.basis == "guideline"
-    driver = _driver([_driveway("d1", 2.0, 10.0)])
+    driver = _driver([_driveway("d1", 2.0, 10.0, direction="one_way")])
     ledger = ConstraintLedger()
     created = derive_national_constraints(driver, ledger)
     constraint = next(c for c in created if c.test.metric == "width")
     assert constraint.source == "Planning Guideline"
     assert constraint.confidence == pytest.approx(1.0)  # the text WAS read directly
+    assert not constraint.rule.startswith("⚠")  # confirmed - no unconfirmed-source warning
 
 
-def test_driveway_width_uses_the_one_way_floor_when_direction_is_unknown():
-    driver = _driver([_driveway("d1", 4.0, 10.0)])
+def test_an_untagged_driveway_direction_is_never_guessed():
+    """The project owner was asked explicitly whether an untagged driveway
+    should default to the weaker one-way figure - decided no: require the
+    tag, check nothing until it is there."""
+    driver = _driver([_driveway("d1", 4.0, 10.0)])  # no direction property
+    ledger = ConstraintLedger()
+    assert derive_national_constraints(driver, ledger) == []
+
+
+def test_a_one_way_driveway_is_checked_against_its_own_figure():
+    driver = _driver([_driveway("d1", 4.0, 10.0, direction="one_way")])
     ledger = ConstraintLedger()
     created = derive_national_constraints(driver, ledger)
     constraint = next(c for c in created if c.test.metric == "width")
@@ -119,9 +133,10 @@ def test_a_two_way_driveway_is_checked_against_the_stricter_figure():
 
 
 def test_driveways_are_not_checked_for_length_the_way_parking_is():
-    driver = _driver([_driveway("d1", 4.0, 10.0)])
+    driver = _driver([_driveway("d1", 4.0, 10.0, direction="one_way")])
     ledger = ConstraintLedger()
     created = derive_national_constraints(driver, ledger)
+    assert created  # sanity: the width check did fire
     assert not any(c.test.metric == "length" for c in created)
 
 

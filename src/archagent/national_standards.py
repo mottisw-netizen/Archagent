@@ -121,10 +121,15 @@ PARKING_MIN_LENGTH = NationalStandard(
 
 #: Ministry parking design guidelines PDF (gov.il), p. 61, just before
 #: "רדיוסים בפניות" - confirmed by direct download and text extraction
-#: (WebFetch could not render the PDF; a local `pypdf` pass could). The
-#: shorter, one-way figure is used as the safe floor when the drawing model
-#: has no "is this aisle one-way or two-way" property, the same
-#: never-guess-the-scenario approach as the parking length floor above.
+#: (WebFetch could not render the PDF; a local `pypdf` pass could).
+#:
+#: Unlike the parking-length floor above, this is NOT applied as a guessed
+#: safe default when direction is untagged - the project owner was asked
+#: explicitly (this module's early design silently picked the one-way floor,
+#: and was corrected) and decided a driveway's width is only checked once
+#: `properties.direction` actually says "one_way" or "two_way"; an untagged
+#: driveway is left unchecked rather than checked against a guessed figure.
+#: See `_driveway_width` below.
 DRIVEWAY_MIN_WIDTH_ONE_WAY = NationalStandard(
     3.50, "m", 'הנחיות משרד לתכנון חניה (gov.il), עמ\' 61 - רוחב מסדרון '
     "מזערי, תנועה חד-סטרית", basis="guideline")
@@ -139,10 +144,17 @@ def _tiered_width(props: dict) -> NationalStandard:
     return PARKING_MIN_WIDTH
 
 
-def _driveway_width(props: dict) -> NationalStandard:
-    if props.get("direction") == "two_way":
+def _driveway_width(props: dict) -> NationalStandard | None:
+    """``None`` when ``properties.direction`` is not explicitly "one_way" or
+    "two_way" - the project owner was asked whether an untagged driveway
+    should default to the weaker one-way figure, and decided no: require the
+    tag, never guess which of the two applies."""
+    direction = props.get("direction")
+    if direction == "two_way":
         return DRIVEWAY_MIN_WIDTH_TWO_WAY
-    return DRIVEWAY_MIN_WIDTH_ONE_WAY
+    if direction == "one_way":
+        return DRIVEWAY_MIN_WIDTH_ONE_WAY
+    return None
 
 
 def derive_national_constraints(driver: DrawingDriver, ledger: ConstraintLedger,
@@ -158,6 +170,13 @@ def derive_national_constraints(driver: DrawingDriver, ledger: ConstraintLedger,
 
     def add(rule: str, test: Requirement, standard: NationalStandard) -> None:
         source = _SOURCE_BY_BASIS[standard.basis]
+        if standard.basis == "unconfirmed":
+            # The project owner asked for this explicitly: an unverified
+            # source must be flagged prominently in the report a human
+            # reads, not just buried in the constraint's own metadata - see
+            # the module docstring. Prefixed, not appended, so it cannot be
+            # truncated out of a table cell that only shows the start.
+            rule = m.t("unconfirmed_source_warning") + rule
         created.append(ledger.add(Constraint(
             constraint_id=ledger.next_id("N"),
             source=source,
@@ -167,7 +186,9 @@ def derive_national_constraints(driver: DrawingDriver, ledger: ConstraintLedger,
             confidence=_CONFIDENCE_BY_BASIS[standard.basis],
         )))
 
-    def _check_width(element_id: str, label: str, standard: NationalStandard) -> None:
+    def _check_width(element_id: str, label: str, standard: NationalStandard | None) -> None:
+        if standard is None:
+            return
         try:
             width = driver.measure({"element_id": element_id}, "width")
         except DrawingAPIError:

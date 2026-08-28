@@ -20,6 +20,16 @@ is how the system is designed to work) or no national source was found.
 *Unconfirmed* means a related national regulation was found but not
 confirmed to match the exact figure currently in code.
 
+**On what "wired" actually does at runtime**: two policy questions about
+this were put to the project owner directly rather than decided silently -
+see `SKILL.md` §8.2b for the full reasoning. (1) An untagged driveway's
+one-way/two-way direction is never guessed - the check simply does not run
+until `properties.direction` says which, rather than defaulting to the
+weaker figure. (2) An `unconfirmed`-basis standard stays active by default
+(not gated behind per-project opt-in), but its constraint's `rule` text is
+prefixed with a prominent "⚠ מקור לא מאומת / UNVERIFIED SOURCE" warning so a
+human reading the report can never mistake it for a confirmed statute.
+
 ---
 
 ## Verified against primary source text (direct document fetch)
@@ -239,7 +249,7 @@ Green Series PDF, directly).
 | Parking space min length | 4.25 / 4.75 / 5.00 m (by end condition) | **Wired, source unconfirmed** (safe floor) | same correction - see the note below |
 | Column/wall clearance to drive-path edge | 0.5 m / 0.75 m (service level 2) | Unconfirmed | ת"י 1918 (Israel Standard 1918) reportedly sets driving-lane widths, turning radii, max slopes and min height for parking facilities - but Israel Standards are sold by מכון התקנים (SII), not freely published online, so the exact clearance figure could not be verified against a public, citable text. The two numbers already in `geometry_rules.yaml` remain correctly scoped as Petah Tikva profile data, not promoted to core, until this is confirmed. |
 | Turning radius (inner/outer) | none in code (caller-supplied only) | **National, confirmed (not wired)** | Ministry parking design guidelines PDF, p. 61 "רדיוסים בפניות": minimum inner turning radius at a road curve/intersection within a parking facility = 3.00 m; p. 62 §14.2: minimum curb radius at a parking-lot/street connection = 6.0 m. Design-vehicle outer turning diameter (p. 5-6, טבלה 1) = 14.0 m (ramp-design vehicle) / 11.0 m (aisle-width-design vehicle). Real, directly-confirmed figures from a ministry guideline document, not yet wired into `archagent.traffic.turning.validate_turning_path` (which has no code path constructing a real `TurningPath` from a project - see `ARCHITECTURE_MAP.md`). |
-| Drive-aisle width (two parking rows) | 3.50 m (one-way, safe floor when direction unknown) / 5.80 m (two-way) | **National (wired, basis="guideline")** | Ministry parking design guidelines PDF, p. 61. Wired in `archagent.national_standards` for `type="driveway"` elements, the same way parking width/length are - checks `properties.direction` when present, otherwise the safer one-way floor. Emitted `source="Planning Guideline"` (confirmed by direct fetch, but a ministry guideline, not a Knesset statute - MEDIUM priority, not automatically CRITICAL). The +0.30 m wall-adjacent widening and the 6.0 m access-road figure are not yet wired (no "adjacent to a wall" / "is this the lot's own access road vs. an internal aisle" property modelled). |
+| Drive-aisle width (two parking rows) | 3.50 m (one-way) / 5.80 m (two-way) - only checked when `properties.direction` says which | **National (wired, basis="guideline")** | Ministry parking design guidelines PDF, p. 61. Wired in `archagent.national_standards` for `type="driveway"` elements, the same way parking width/length are. Put to the project owner explicitly: should an untagged driveway default to the weaker one-way floor (as parking length's own floor does for its ambiguous case)? Decided no - `properties.direction` must be explicitly `"one_way"`/`"two_way"` or the check does not run at all for that element. Emitted `source="Planning Guideline"` (confirmed by direct fetch, but a ministry guideline, not a Knesset statute - MEDIUM priority, not automatically CRITICAL). The +0.30 m wall-adjacent widening and the 6.0 m access-road figure are not yet wired (no "adjacent to a wall" / "is this the lot's own access road vs. an internal aisle" property modelled). |
 | Column/wall setback from a turning-radius curve | 0.5 m already used for the general drive-path-edge case | **National, confirmed (narrower scope)** | Same PDF, p. 61: 0.5 m from the *turning-radius curve* specifically - confirms the existing 0.5 m figure in a closely related but distinct case; does not resolve the general drive-path-edge clearance row above, which remains unconfirmed. |
 | Accessible parking count (ratio of total) | not implemented | National, not wired | Set by a schedule/appendix (תוספת) to the 1983 parking regulations, not a flat percentage - implementing this needs the actual schedule table, not a single number, so it was not fabricated as one |
 | Bicycle parking (count, dimensions, signage) | not implemented | National, not wired | תקנות התכנון והבניה (בקשה להיתר, תנאיו ואגרות), תש"ל-1970, תוספת שניה חלק ח1 - a real, distinct regulation for *bicycle parking spaces* (bike racks), separate from the `bicycle_stroller_room` storage-room parameter below - not yet implemented |
