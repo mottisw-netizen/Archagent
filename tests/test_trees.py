@@ -2,7 +2,28 @@
 
 from __future__ import annotations
 
-from archagent.site import Tree, validate_preservation_radius
+from archagent.site import Tree, requires_felling_license, validate_preservation_radius
+
+
+def test_a_thick_trunk_meets_the_mature_tree_diameter_threshold():
+    tree = Tree(tree_id="T-1", trunk_diameter=0.12)
+    assert requires_felling_license(tree) is True
+
+
+def test_a_thin_trunk_does_not():
+    tree = Tree(tree_id="T-2", trunk_diameter=0.08)
+    assert requires_felling_license(tree) is False
+
+
+def test_the_residential_plot_threshold_is_stricter():
+    tree = Tree(tree_id="T-3", trunk_diameter=0.15)
+    assert requires_felling_license(tree, plot_use="other") is True
+    assert requires_felling_license(tree, plot_use="residential") is False
+
+
+def test_an_unmeasured_trunk_is_unknown_not_guessed_false():
+    tree = Tree(tree_id="T-4")
+    assert requires_felling_license(tree) is None
 
 
 def test_preserved_tree_flags_nearby_work():

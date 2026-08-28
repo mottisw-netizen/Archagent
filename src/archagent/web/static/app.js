@@ -936,6 +936,8 @@ class PlanViewer {
     const styles = getComputedStyle(document.documentElement);
     const surface = styles.getPropertyValue('--surface-2').trim() || '#ffffff';
     const ink = styles.getPropertyValue('--ink').trim() || '#111111';
+    const accentColour = styles.getPropertyValue('--accent').trim() || '#2f6690';
+    const criticalColour = styles.getPropertyValue('--critical').trim() || '#b3402c';
     ctx.fillStyle = surface;
     ctx.fillRect(0, 0, rect.width, rect.height);
 
@@ -952,7 +954,7 @@ class PlanViewer {
       ctx.fillRect(topLeft.x, topLeft.y, w, h);
       ctx.globalAlpha = 1;
 
-      ctx.strokeStyle = selected ? '#5b9bf2' : (changed ? '#a58bff' : 'rgba(120,120,120,.7)');
+      ctx.strokeStyle = selected ? accentColour : (changed ? criticalColour : 'rgba(120,120,120,.7)');
       ctx.lineWidth = selected ? 2.5 : (changed ? 2 : 1);
       if (changed && !selected) ctx.setLineDash([5, 3]); else ctx.setLineDash([]);
       ctx.strokeRect(topLeft.x, topLeft.y, w, h);
@@ -966,7 +968,7 @@ class PlanViewer {
         ctx.fillText(element.label, topLeft.x + w / 2, topLeft.y + h / 2);
       }
       if (changed) {
-        ctx.fillStyle = '#a58bff';
+        ctx.fillStyle = criticalColour;
         ctx.beginPath();
         ctx.arc(topLeft.x + w - 5, topLeft.y + 5, 3.5, 0, Math.PI * 2);
         ctx.fill();
@@ -1158,6 +1160,9 @@ class ModelEditor {
     const rect = canvas.parentElement.getBoundingClientRect();
     canvas.width = rect.width; canvas.height = rect.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const styles = getComputedStyle(document.documentElement);
+    const accentColour = styles.getPropertyValue('--accent').trim() || '#2f6690';
+    const lineColour = styles.getPropertyValue('--line-strong').trim() || '#3a3f4b';
     this.elements().forEach((element) => {
       const g = element.geometry;
       if (!g || g.kind !== 'rect') return;
@@ -1167,7 +1172,7 @@ class ModelEditor {
       ctx.globalAlpha = 0.55;
       ctx.fillRect(topLeft.x, topLeft.y, w, h);
       ctx.globalAlpha = 1;
-      ctx.strokeStyle = this.selected && this.selected.id === element.id ? '#e0a02b' : '#3a3f4b';
+      ctx.strokeStyle = this.selected && this.selected.id === element.id ? accentColour : lineColour;
       ctx.lineWidth = this.selected && this.selected.id === element.id ? 2.5 : 1;
       ctx.strokeRect(topLeft.x, topLeft.y, w, h);
     });

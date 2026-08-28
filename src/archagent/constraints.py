@@ -29,6 +29,12 @@ SOURCE_RANK = {
     "Zoning Plan": 1,
     "Planning Regulation": 1,
     "Project Requirement": 2,
+    #: A ministry-published planning guideline (e.g. the parking-design or
+    #: Green Series street PDFs), confirmed by directly reading its text -
+    #: real and citable, but advisory, not a Knesset-level statute like
+    #: "Planning Regulation". Ranked with Project Requirement, not weaker
+    #: Reference, because it *was* verified against primary text.
+    "Planning Guideline": 2,
     "Source Model": 3,
     "Previous Submission": 4,
     "Reference": 5,

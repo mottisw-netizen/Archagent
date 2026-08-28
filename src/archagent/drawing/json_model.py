@@ -90,7 +90,10 @@ class JSONModelDriver(DrawingDriver):
         raise ElementNotFound(f"element not found: {element_id!r}")
 
     def _box(self, element: dict) -> geo.Box:
-        return geo.box_from_dict(element["geometry"])
+        geometry = element.get("geometry")
+        if geometry is None:
+            raise MeasurementError(f"{element['id']} has no geometry")
+        return geo.box_from_dict(geometry)
 
     def _plot(self) -> geo.Box:
         plot = self.model.get("site", {}).get("plot")

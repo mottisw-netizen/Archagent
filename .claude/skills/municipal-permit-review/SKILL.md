@@ -623,6 +623,23 @@ Never violate a higher-priority constraint to satisfy a lower-priority one.
 
 Everything already approved is itself a constraint. Before proposing a change, record as constraints the values that must **not** change: existing compliant setbacks, the approved unit count, approved areas, structural grid, existing consultant interfaces. Preserving valid existing design (§17.1) is enforced through this ledger, not through memory.
 
+### 8.2b National regulation defaults
+
+Not every real violation is mentioned in a comment. `archagent.national_standards.derive_national_constraints` adds a third automatic source alongside §8.2's implicit constraints: national-level minimums for `type="parking"` elements (width/length, tiered by obstruction and end condition) and `type="driveway"` elements (drive-aisle width, by direction). This runs on every project, for every authority, not only Petah Tikva: an undersized space or aisle is now flagged even when no comment ever mentions it.
+
+Every entry states its `basis` honestly, one of three - never claim `"statute"` or `"guideline"` from a search-result summary alone, only from a session that actually opened and read the document:
+
+- `"statute"` - confirmed against a Knesset-level regulation's own text. `source="Planning Regulation"`, CRITICAL priority, second-strongest source rank (§3.4).
+- `"guideline"` - confirmed against a ministry-published planning guideline's own text (e.g. a gov.il PDF) - real and citable, but advisory. `source="Planning Guideline"`, MEDIUM priority by default, same source rank as a project requirement. The driveway-width figures use this tier.
+- `"unconfirmed"` - a working default whose likely origin could not be verified against primary text. `source="Reference"`, MEDIUM priority, the weakest source rank, confidence 0.6. The parking width/length figures are currently here: a direct fetch of the regulation they were first cited to (תקנות התכנון והבניה (התקנת מקומות חניה), תשמ״ג-1983) proved that citation wrong - that regulation's own text has no width/length dimensions at all, only space-count rules and area-only figures. The numbers were not withdrawn (they are still real, standard Israeli parking-design figures, plausibly from the paywalled ת"י 1918), only honestly re-marked - see `archagent/national_standards.py`'s module docstring for the exact finding.
+
+Two design decisions here were put to the project owner explicitly rather than decided silently, per `PERMIT_LEARNING_MISSION.md`'s own REVIEWED/APPROVED gate before something goes ACTIVE:
+
+1. **An untagged driveway's direction is never guessed.** An earlier version defaulted an untagged `type="driveway"` element to the weaker one-way figure (3.50 m) to avoid false positives, the same pattern used for the parking-length floor. Asked directly, the owner said no: `properties.direction` must say `"one_way"` or `"two_way"` before the width check runs at all; an untagged driveway is left unchecked rather than checked against a guessed figure.
+2. **An unconfirmed standard stays active, with a prominent report warning.** Rather than disabling `basis="unconfirmed"` checks by default or requiring per-project opt-in, the owner chose to keep them enforced (still real, still useful) but make the uncertainty impossible to miss: `national_standards.py` prefixes such a constraint's `rule` text with `m.t("unconfirmed_source_warning")` ("⚠ מקור לא מאומת / UNVERIFIED SOURCE") - at the front, not appended, so it survives a report table cell that only shows the start of a long rule string.
+
+`docs/NATIONAL_VS_LOCAL_STANDARDS.md` is the parameter-by-parameter survey (per project's `PERMIT_LEARNING_MISSION.md`) of what else was checked, including a "Verified against primary source text" section from direct document fetches (not search snippets) - what is genuinely local/plan-specific by the nature of Israeli planning law (landscaping ratios, setbacks, drainage clearances - these vary by zoning plan on purpose), and what national standards exist (some confirmed, some still snippet-only) but are not yet wired in (ramp slope, turning radius, general curb height, accessible parking count, EV charging infrastructure) with the specific reason for each gap - several are structural (no matching driver metric or element type) rather than a missing number. Do not add a new "national" default without a citation that survey doc can point to, and do not mark one `"statute"` or `"guideline"` without having read the actual clause yourself.
+
 ### 8.3 Conflict resolution
 
 When two constraints cannot both be satisfied:
