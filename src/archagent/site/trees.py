@@ -26,6 +26,17 @@ REMOVAL_STATUSES = ("not_removed", "pending", "removed")
 #: least 20 cm on a plot zoned for residential use. Felling, severe pruning,
 #: root-cutting or building within the canopy radius of a mature (or
 #: otherwise protected) tree needs a forestry-officer license.
+#:
+#: Provenance note, in the same spirit as `archagent.national_standards`'s
+#: `basis` field (this module predates that mechanism, so it is only a
+#: docstring note here, not a structural one): these two figures came from a
+#: search-result summary quoting the Ordinance's definition, not from this
+#: session directly opening and reading nevo.co.il's text of פקודת היערות
+#: itself. A parking-regulation citation that looked equally solid from a
+#: summary turned out to be wrong once actually fetched (see
+#: docs/NATIONAL_VS_LOCAL_STANDARDS.md) - treat these two numbers with the
+#: same "real but not yet verified against primary text" caution until
+#: someone actually reads the Ordinance directly.
 MATURE_TREE_MIN_DIAMETER = 0.10
 MATURE_TREE_MIN_DIAMETER_RESIDENTIAL = 0.20
 
