@@ -22,6 +22,214 @@ confirmed to match the exact figure currently in code.
 
 ---
 
+## Verified against primary source text (direct document fetch)
+
+This section supersedes the "Method and its limits" caveat below wherever the
+two disagree: this pass fetched the primary documents directly (WebFetch,
+with `curl` as a fallback that turned out to be IP-blocked by nevo.co.il —
+see the note at the end of this section) instead of relying on search-result
+snippets. Five sources were checked. Findings are reported plainly: confirmed
+figures with their clause, wrong figures named as wrong, and unconfirmed
+items with the specific reason they stayed unconfirmed.
+
+### 1. תקנות למניעת מפגעים (רעש בלתי סביר), תש"ן-1990 (noise)
+
+**Confirmed, text-based:**
+- Day = 06:00–22:00, night = 22:00 (22:01)–06:00 (05:59), per the definitions
+  in סעיף 1 (regulation 1).
+- Five building-use categories are defined in סעיף 1 / תוספת ראשונה: מבנה א'
+  (hospital, convalescent home, school), ב' (building in a residential zone),
+  ג' (building in a mixed residential/commercial area), ד' (residential unit
+  in an industrial/commercial zone), ה' (industrial/commercial building in an
+  industrial zone).
+
+**Genuinely unconfirmed — figure not present as text:** the actual dB(A)
+limits per category, per day/night, live in the תוספת ראשונה table, and that
+table is embedded as a scanned image (`image004.gif`) with no text
+alternative in the published HTML. This is not a fetch failure — the page
+itself loaded and its surrounding structure (column headers "יום"/"לילה",
+the five category rows) is confirmed above — it is a genuine "the number
+is not present as extractable text" situation. No dB figure is recorded in
+`national_standards.py` for this parameter, consistent with the "not wired"
+verdict already in this document; this pass adds nothing to change that
+verdict, only firmer confirmation of why.
+
+### 2. תקנות התכנון והבניה (התקנת מקומות חניה), תשמ"ג-1983 (parking)
+
+**Correction — the existing citation for the width/length figures is
+wrong.** This document's own table above (Parking section) cites "תקנה 2"
+of this regulation as the source for the 2.30/2.55/2.80 m width and
+4.25/4.75/5.00 m length figures in `national_standards.py`. Direct fetch of
+the full regulation text — תקנה 2 itself, חלק א' (general provisions) and
+חלק ב' (vehicle parking) of the תוספת — found **no width or length
+dimensions anywhere in this document**. What the text actually contains:
+- תקנה 2: only governs a planning institution's authority to set a different
+  space *count* than the תוספת prescribes, under conditions — not dimensions.
+- חלק א', סעיף 1 of the תוספת defines "parking space" only as an *area*
+  absent a detailed layout plan: 25 m² for a private car, 60 m² for a truck,
+  100 m² for a bus — no width/length breakdown, and no obstruction-dependent
+  variation.
+- חלק ב' of the תוספת contains only parking-ratio-by-land-use tables (e.g.
+  "1 space per 50 m²" for offices, commerce, industry, etc.), not space
+  dimensions.
+- חלק ג' and חלק ד' cover bicycle and motorcycle parking minimums
+  respectively — also not the source of the 2.30–2.80 m / 4.25–5.00 m car
+  space figures.
+
+  The 2.30/2.55/2.80 m and 4.25/4.75/5.00 m figures are real, sensible
+  numbers for Israeli parking-space design and are not being called
+  fabricated — but this specific regulation and this specific clause are the
+  wrong citation for them. The most likely actual source is ת"י 1918 (the
+  Israel Standard already flagged elsewhere in this document as real but
+  paywalled/unverifiable), not a freely-published planning regulation.
+  `national_standards.py` and this document's citation for those two rows
+  should be corrected to remove the "תקנה 2" attribution — the figures stay
+  wired as a working default, but their sourcing claim needs to change from
+  "confirmed against this regulation's text" to "plausible ת"י 1918 origin,
+  unconfirmed" until ת"י 1918 itself can be read.
+
+**Confirmed:** accessible parking space count/ratio is not a flat number in
+this regulation — Part A, §8 cross-references "פרטים 8.110 ו-8.271 בתוספת
+השנייה" (items 8.110/8.271 of the Second Appendix to the general Planning
+and Building regulations, a separate document). This matches the existing
+"not implemented — set by a schedule, not a flat percentage" verdict above;
+this pass just confirms the cross-reference wording directly rather than via
+search snippet.
+
+**Column/wall clearance to drive-aisle:** not covered by this regulation
+either (consistent with it already being marked "Unconfirmed" against ת"י
+1918, not this document). See source #4 below for a related, but distinct,
+figure that direct fetch did surface.
+
+### 3. תקנות שוויון זכויות לאנשים עם מוגבלות (התאמות נגישות למקום ציבורי שאינו בניין), תשע"ד-2013 (accessibility)
+
+**Correction — three figures in this document's own Accessibility table are
+not confirmed by this regulation's text, and are likely mis-cited.** Direct,
+full-document search (including regulations 2–4, 7–13 and both appendices)
+for "אבן שפה" (curb), "מונמכת" (dropped/lowered), and the 200 m/100 m
+distance figures returned **zero matches outside the cemetery-specific
+section (regulation 9)**. Specifically:
+- **Dropped-curb max transition slope**: not found anywhere in this
+  regulation's text. The existing "≤10%" figure is not confirmed here.
+- **Curb height at an accessible bus stop**: not found in this regulation.
+  "תחנת הסעה" (transit stop) is named once, in regulation 2(א)(2)(א), only
+  as one of several nearby amenities a public-place entrance must connect
+  to accessibly — no height figure is attached. See source #5 below, which
+  *does* directly confirm a 15 cm figure, but sources it to a different
+  regulation ("תקנות דרכים נגישות" — accessible-roads regulations, not this
+  "non-building public place" regulation).
+- **200 m / 100 m accessible-route distance**: the only distance caps in the
+  entire document are cemetery-specific (regulation 9): route length ≤100 m,
+  or ≤60 m where slope exceeds 5%; distance from a viewing point to a grave
+  ≤25 m. No general 200 m/100 m figure exists in this regulation's text.
+
+**What this regulation's text does confirm, not previously in this
+document:** regulation 8(ד) (temporary/maintenance-period accessibility)
+sets a maximum slope of 12% for a temporary ramp segment ≤2.5 m long (with
+uniform slope required between landings), minimum clear width 90 cm, and
+minimum load capacity 350 kg — this is for temporary ramps during renovation
+work, not the general permanent-ramp figure the existing "8%" row describes.
+The document repeatedly defers detailed technical figures to "הנחיות טכניות
+של הממונה" (regulation 7, Commissioner's technical instructions) and to ת"י
+1918 — consistent with this document's existing framing that the paywalled
+Standard, not this regulation's own text, likely carries the actual
+permanent-ramp slope, dropped-curb, and distance figures. The "8%"
+ramp-slope default already in this document should be treated as unconfirmed
+against this specific regulation's text (it may still be correct — it is
+consistent with common Israeli accessible-design practice and with ת"י
+1918 as reported elsewhere — but this regulation's own text is not where it
+comes from).
+
+### 4. Ministry parking design guidelines PDF (gov.il, `parking_planning_guidelines`)
+
+This PDF fetched successfully via direct download (WebFetch's own HTML
+fetch failed on the raw PDF; downloading and extracting text locally with
+`pypdf` worked — 84 pages, Hebrew RTL text, tables partially garbled by
+extraction but numerically legible). Findings, each with its own page/section:
+
+- **Minimum outer turning diameter** — טבלה 1 ("מידות רכב לתכנון", design
+  vehicle dimensions, p. 5–6): 14.0 m for the ramp-design vehicle, 11.0 m
+  for the aisle-width-design vehicle. This is the design vehicle's own
+  turning diameter (the basis other dimensions are derived from), not a
+  single simple "required maneuvering radius" — but it is the closest,
+  directly-cited figure to what was asked.
+- **Minimum inner turning radius at a road curve/intersection** within a
+  parking facility: 3.00 m (p. 61, section "רדיוסים בפניות").
+- **Column/wall setback from the turning-radius line**: 0.5 m / 50 cm, same
+  section, same page — a genuinely new, directly-confirmed figure. Note
+  this is scoped specifically to clearance from a *turning-radius curve*,
+  not a general drive-aisle edge, so it does not fully resolve the
+  "Unconfirmed" column/wall clearance row in the Parking table above (which
+  is about a straight drive-path edge) — but it is a real, citable,
+  closely-related number this pass did not have before.
+- **Minimum curb radius at a parking-lot/street connection acting as an
+  intersection**: 6.0 m (p. 62, section 14.2, "החיבור עם הרחוב").
+- **Minimum drive-aisle width between two parking rows** (independent of
+  angle): two-way (דו-סטרי) 5.80 m; one-way (חד-סטרי) 3.50 m — widen by
+  0.30 m per side if the aisle runs parallel to a wall (p. 61, just before
+  "רדיוסים בפניות").
+- **Access road to a parking lot**: generally two-lane, two-way, 6.0 m wide
+  (p. 62, §14.1); may be single-lane only under specific conditions (serves
+  ≤40 spaces, access path <25 m long, full driver sightline the whole
+  length) — a genuinely new figure, not previously in this document.
+
+None of these were in `national_standards.py` or this document before this
+pass; they are new candidates for a future wiring pass, not yet wired.
+
+### 5. "Green Series" street planning guidelines PDF (gov.il)
+
+The specific PDF at the given URL is the **"תנועת רכב מנועי" (motorized
+vehicle movement) volume** of the multi-volume Green Series, dated update
+October 2020 (this matters — see the gap noted below). WebFetch failed
+outright (12.2 MB PDF over WebFetch's 10 MB content cap); downloading and
+extracting locally with `pypdf` worked (125 pages).
+
+- **Minimum/maximum lane width by street type** — טבלה 3.3 (p. 69–70), not
+  overall road width: local street (רחוב מקומי) 2.50–3.0 m or 2.75–3.0 m
+  per lane depending on sub-case; collector street (רחוב מאסף) 2.75–3.0 m
+  or 3.0–3.25 m; arterial road (דרך עורקית) 3.25–3.50 m; traffic-calmed
+  zone street 4.75–5.80 m total (up to 5.0 m where parking is perpendicular).
+- **Curb height at bus stops**: **15 cm, explicitly confirmed**, "even on
+  streets where the general sidewalk curb height is 10 cm... to comply with
+  תקנות דרכים נגישות [accessible-roads regulations]" (p. 88, §3.8). This
+  directly confirms the 15 cm figure already in this document's
+  Accessibility table — but names a *different* regulation ("תקנות דרכים
+  נגישות") as its source than the one this document currently cites
+  (תשע"ד-2013, source #3 above) — see the correction in #3.
+- **General sidewalk curb height** (not at bus stops): up to 10 cm on
+  streets (רחובות), 15 cm on roads (דרכים) — §3.6.1, p. 84.
+- **Planting/green strip width along a sidewalk edge** (not the sidewalk
+  itself): 2.0 m on collector streets, 2.5 m on urban roads — p. 84.
+
+**Genuinely unconfirmed — not present in this specific volume:** a simple
+"minimum road width and minimum sidewalk width by street classification"
+table, as asked for, does not exist in this PDF. This volume repeatedly
+defers general sidewalk width, crossing and curb-drop guidance to a
+*companion* volume in the same series, "ספר תנועת הולכי-רגל" (Pedestrian
+Movement volume) — a different PDF this pass did not fetch. Overall road
+cross-section width in this volume is composed from the lane-width table
+above plus separately-specified medians, parking strips and sidewalks per
+corridor, not published as one classification→width table. This is a real
+gap in the source consulted, not a number this pass declined to report.
+
+### Note on method for this section
+
+`curl` from this session is IP-blocked by nevo.co.il itself (HTTP 403,
+"כתובת IP חסומה" — unrelated to the outbound network policy discussed in
+the "Method and its limits" note below, and confirmed by fetching the same
+URLs successfully through WebFetch immediately afterward). WebFetch's own
+first pass on each nevo.co.il page also under-reported — it returned a
+partial summary rather than the full text — so each nevo.co.il source was
+re-queried two to three times with progressively more targeted prompts
+(asking for full verbatim clause text, appendix tables, and specific
+keyword searches) before treating an absence as confirmed rather than as an
+artifact of summarization. The gov.il PDFs required a local download and
+`pypdf` text extraction (WebFetch could not process either the corrupted
+in-tool PDF rendering for the parking guidelines, or the 12 MB size of the
+Green Series PDF, directly).
+
+---
+
 ## Parking
 
 | Parameter | Current value | Verdict | Source |
