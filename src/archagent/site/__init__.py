@@ -28,13 +28,21 @@ from .roads import (
 )
 from .surfaces import Surface
 from .topology import SiteElement, SiteRelation, SiteTopology
-from .trees import Tree, validate_preservation_radius
+from .trees import (
+    MATURE_TREE_MIN_DIAMETER,
+    MATURE_TREE_MIN_DIAMETER_RESIDENTIAL,
+    Tree,
+    requires_felling_license,
+    validate_preservation_radius,
+)
 
 __all__ = [
     "Curb", "CrossSectionPoint", "DrainageEdge", "DrainageNetwork", "DrainageNode",
     "ElevationGraph", "chamber_volume",
-    "ElevationPoint", "Pipe", "Road", "Sidewalk", "SiteElement", "SiteRelation",
+    "ElevationPoint", "MATURE_TREE_MIN_DIAMETER", "MATURE_TREE_MIN_DIAMETER_RESIDENTIAL",
+    "Pipe", "Road", "Sidewalk", "SiteElement", "SiteRelation",
     "SiteTopology", "SlopeResult", "Surface", "Tree", "pipe_slope",
+    "requires_felling_license",
     "validate_capacity_evidence", "validate_coverage", "validate_curb_height",
     "validate_elevation_consistency", "validate_flow_direction",
     "validate_municipal_line_setback", "validate_preservation_radius",

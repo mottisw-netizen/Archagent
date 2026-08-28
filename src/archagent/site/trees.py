@@ -21,6 +21,14 @@ from ..models import Serialisable
 PRESERVATION_STATUSES = ("unassessed", "preserve", "removal_approved")
 REMOVAL_STATUSES = ("not_removed", "pending", "removed")
 
+#: Forest Ordinance (פקודת היערות) definition of a "mature tree" (עץ בוגר):
+#: trunk diameter, measured 130 cm above ground, of at least 10 cm - or at
+#: least 20 cm on a plot zoned for residential use. Felling, severe pruning,
+#: root-cutting or building within the canopy radius of a mature (or
+#: otherwise protected) tree needs a forestry-officer license.
+MATURE_TREE_MIN_DIAMETER = 0.10
+MATURE_TREE_MIN_DIAMETER_RESIDENTIAL = 0.20
+
 
 @dataclass
 class Tree(Serialisable):
@@ -35,6 +43,27 @@ class Tree(Serialisable):
     authority_license: str = ""
     x: float = 0.0
     y: float = 0.0
+
+
+def requires_felling_license(tree: Tree, plot_use: str = "other") -> bool | None:
+    """Does this tree meet the Forest Ordinance's *diameter* criterion for a
+    "mature tree" (עץ בוגר), for which felling/severe pruning/root-cutting/
+    building within the canopy needs a forestry-officer license?
+
+    This checks trunk diameter only - the Ordinance's full definition is
+    height >= 2 m *and* trunk diameter over the threshold, and ``Tree`` has
+    no height field, so this can only confirm the diameter half of the test.
+    Returns ``None`` (not measured, never a guessed False) when
+    ``trunk_diameter`` is unknown - the same "never fabricate" rule as
+    ``preservation_status`` above, and distinct from it: this is a factual
+    classification against the law, not the authority's own preserve/approve
+    decision, and never overrides ``preservation_status``.
+    """
+    if tree.trunk_diameter is None:
+        return None
+    threshold = (MATURE_TREE_MIN_DIAMETER_RESIDENTIAL if plot_use == "residential"
+                else MATURE_TREE_MIN_DIAMETER)
+    return tree.trunk_diameter >= threshold
 
 
 def validate_preservation_radius(tree: Tree, works: dict[str, tuple[float, float]]

@@ -97,6 +97,57 @@ number" is itself wrong; every setback constraint in this system correctly
 comes from a comment, a project's own zoning plan reference, or an
 authority profile, never from a core default - and that should stay true.
 
+## Environment - trees / forestry
+
+| Parameter | Current value | Verdict | Source |
+|---|---|---|---|
+| "Mature tree" (עץ בוגר) trunk diameter, requiring a felling license | 10 cm (general), 20 cm (residential-zoned plot) | **National (wired)** | פקודת היערות (Forest Ordinance). `archagent.site.trees.requires_felling_license` checks this - trunk diameter only, since `Tree` has no height field and the Ordinance's full test is height >= 2 m *and* diameter over the threshold; returns `None` (unmeasured) rather than guessing when diameter is unknown, and never touches the separate, authority-sourced `preservation_status` field. |
+| Mature/protected tree preservation radius | caller-supplied only, no default | **Local**, correctly | The Ordinance defines the *license trigger* (diameter), not a universal preservation *radius* - that comes from a forestry officer's own survey/license per tree, which is exactly why `Tree.preservation_status`/`preservation_radius` are never auto-set. |
+| "Felling" definition (what counts as an act needing a license) | not modelled | National, not wired | The Ordinance's own definition is broad - main-trunk pruning, poisoning, bark removal, burning, root-cutting, *or building within the canopy diameter*, not just outright removal. `validate_preservation_radius` already checks "does a planned work point fall inside the radius", which is one instance of this broader definition, not the full test. |
+
+## Environment - noise / acoustics
+
+| Parameter | Current value | Verdict | Source |
+|---|---|---|---|
+| "Unreasonable noise" (רעש בלתי סביר) dB limits | not modelled at all - no acoustic dB semantic object exists in this codebase | National, not wired | תקנות למניעת מפגעים (רעש בלתי סביר), תש"ן-1990 and (מניעת רעש), תשנ"ג-1992 are real, in force, and define limits per building-use type with separate day (06:00-22:00) and night (22:00-06:00) thresholds - but the actual dB figures per category were not in the search snippets available this session (they explicitly exclude aircraft, vehicle/rail traffic and temporary construction-site noise, which is itself a useful fact - this system should never apply a blanket noise constraint to those sources). `archagent.environment.reports.py`'s own docstring already states its design intent correctly: "None of these invent a legal threshold - they check coverage" (is an acoustic report present/complete), not the report's actual numeric findings - so there is no existing threshold-checking code this would even wire into today. Implementing real dB limits is new semantic territory (`MISSING_SEMANTIC_OBJECT` per `ARCHITECTURE_MAP.md`'s gap taxonomy), not a missing default on existing code. |
+
+## Traffic - EV charging infrastructure
+
+| Parameter | Current value | Verdict | Source |
+|---|---|---|---|
+| Share of parking spaces requiring EV-charging infrastructure (conduit + panel capacity, not the charger itself) | not modelled at all | National, not wired | 20% of parking spaces in new residential buildings built as high-density (בנייה רוויה), in force since March 2023 - a 2022 amendment to the same 1983 parking regulations already wired for width/length. Panel capacity must be at least 3 kW × 20% of the space count. This is a strong, precise, freely-published figure - a genuinely good candidate for a small new module (an `EVChargingInfrastructure` semantic object plus a `derive_national_constraints`-style count check), not implemented in this pass because it is new territory, not an existing validator missing a default, and the project owner's "check every parameter" ask was answered by surveying, not by building new features unprompted (`PERMIT_LEARNING_MISSION.md`: "do not randomly add features"). |
+
+## Roads
+
+| Parameter | Current value | Verdict | Source |
+|---|---|---|---|
+| Minimum road/lane/sidewalk width | caller-supplied only (`archagent.site.roads.Road`/`Sidewalk`), no default | National guidance exists, not wired | The Ministry of Construction and Housing's "Green Series" (הנחיות לתכנון רחובות בערים) - official, freely published PDFs on gov.il covering motorized-vehicle movement, pedestrian planning and general street-space design, with real dimensional tables. These are planning *guidelines* from a ministry, not a Knesset-level statute like the parking regulations - worth wiring once the actual PDF tables are read directly (this session could not fetch gov.il PDFs - see the network-access discussion elsewhere in this conversation), and worth checking whether they are binding-by-reference in a local plan or advisory. |
+
+## Architecture
+
+No additional undiscovered numeric parameters beyond what earlier sections
+already cover. `archagent.architecture`'s validators
+(`validate_area_ratio`, `validate_soil_depth`, `validate_distance_to_plot_boundary`,
+`validate_site_level_difference`) are all generic composite-math helpers
+with no built-in thresholds of their own - every actual number they get
+called with today comes from `geometry_rules.yaml` (landscaping ratio,
+permeable area, soil depth - already covered above, correctly local) or a
+municipal comment. Setback/building line is covered above too: local by the
+nature of the law, not a research gap.
+
+## Lighting
+
+**Not modelled at all - a `MISSING_SEMANTIC_OBJECT` gap, not a
+national-vs-local question yet.** `archagent.infrastructure` mentions
+lighting only as one of several *coordination* items an external-utility
+requirement can name (electricity, lighting, communication cabinets) - a
+document/coordination check, not a semantic object with its own geometry or
+numeric parameters (pole spacing, lux levels, etc.). There is no ת"י
+1592-style lux/spacing figure wired anywhere because there is no lighting
+object for it to attach to. Before researching a number, this needs Phase 5
+(discover the object from real cases) - premature to wire a threshold onto
+an object this codebase does not yet represent.
+
 ## Not yet surveyed
 
 General (non-accessibility-specific) sidewalk width and road width
