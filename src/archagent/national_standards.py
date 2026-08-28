@@ -190,10 +190,12 @@ def derive_national_constraints(driver: DrawingDriver, ledger: ConstraintLedger,
         if standard is None:
             return
         try:
-            width = driver.measure({"element_id": element_id}, "width")
+            # measure() either returns a Measurement or raises - it never
+            # returns None - so the only thing this proves is "this element
+            # has a width at all"; the value itself isn't used here, since
+            # the constraint is evaluated against the live model later.
+            driver.measure({"element_id": element_id}, "width")
         except DrawingAPIError:
-            return
-        if width is None:
             return
         add(m.t("national_standard", element=label, parameter=m.metric("width"),
                 value=m.value(standard.value), source=standard.source),
@@ -212,16 +214,15 @@ def derive_national_constraints(driver: DrawingDriver, ledger: ConstraintLedger,
         if element_type == "parking":
             _check_width(element_id, label, _tiered_width(props))
             try:
-                length = driver.measure({"element_id": element_id}, "length")
+                driver.measure({"element_id": element_id}, "length")
             except DrawingAPIError:
-                length = None
-            if length is not None:
-                add(m.t("national_standard", element=label, parameter=m.metric("length"),
-                        value=m.value(PARKING_MIN_LENGTH.value), source=PARKING_MIN_LENGTH.source),
-                    Requirement(subject={"element_id": element_id, "label": label},
-                               metric="length", op=">=", value=PARKING_MIN_LENGTH.value,
-                               unit=PARKING_MIN_LENGTH.unit),
-                    PARKING_MIN_LENGTH)
+                continue
+            add(m.t("national_standard", element=label, parameter=m.metric("length"),
+                    value=m.value(PARKING_MIN_LENGTH.value), source=PARKING_MIN_LENGTH.source),
+                Requirement(subject={"element_id": element_id, "label": label},
+                           metric="length", op=">=", value=PARKING_MIN_LENGTH.value,
+                           unit=PARKING_MIN_LENGTH.unit),
+                PARKING_MIN_LENGTH)
         else:  # driveway
             _check_width(element_id, label, _driveway_width(props))
 

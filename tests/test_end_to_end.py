@@ -23,6 +23,34 @@ def test_consultation_run_applies_the_approved_changes(project):
     assert result.changes and result.version == "v2"
 
 
+def test_no_constraint_is_derived_twice_for_the_primary_source(project):
+    """A real bug: derive_implicit_constraints/derive_national_constraints ran
+    once in _build_ledger() and again in the per-scope loop for the same
+    primary driver, because _editable_scopes() always lists the primary
+    scope first. Every implicit/national constraint on the primary source
+    was doubled under two different ids - the correction report listed the
+    same violation twice.
+
+    Scoped to the two *derived* sources (never to "Zoning Plan"/"Municipal
+    Comment"/etc.), because two independently-authored real requirements can
+    legitimately render to the same English sentence (a document and a
+    comment both saying "northern setback must be at least 3.0m") - that is
+    not this bug, and asserting global rule-text uniqueness would be a false
+    positive on it."""
+    result = _run(project, answers={"C-005": "approve"})
+    # "not fall below the approved" is derive_implicit_constraints' own message
+    # template; " per " only ever appears in derive_national_constraints'
+    # "{element} {parameter} must be at least {value} per {source}" - neither
+    # phrasing is used by comment/document-derived rules, so this isolates
+    # exactly the two sources the bug doubled, without false-flagging a
+    # comment and a document that happen to state the same requirement.
+    rules = [c.rule for c in result.validation.constraints
+            if "not fall below the approved" in c.rule or " per " in c.rule]
+    assert rules  # sanity: the example project's parking spaces do trigger both checks
+    assert len(rules) == len(set(rules)), \
+        f"duplicate derived-constraint rule text: {[r for r in rules if rules.count(r) > 1]}"
+
+
 def test_every_change_traces_to_a_comment_and_a_plan(project):
     result = _run(project, answers={"C-005": "approve"})
     assert all(change.comment_id and change.plan_id for change in result.changes)

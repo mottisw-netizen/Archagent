@@ -140,6 +140,14 @@ class Orchestrator:
         routings = self._route(context)
         scopes = self._editable_scopes(routings)
         for scope in scopes:
+            # The primary source already went through both of these in
+            # _build_ledger(); _editable_scopes() always lists it first
+            # (see its own docstring), so re-running them here would derive
+            # every implicit/national constraint on it a second time under a
+            # new id - duplicate entries in the report, not just a wasted
+            # measurement. Only the *other* connected sources need this.
+            if scope.driver is self.driver:
+                continue
             derive_implicit_constraints(scope.driver, self.ledger, self.m)
             derive_national_constraints(scope.driver, self.ledger, self.m)
 
