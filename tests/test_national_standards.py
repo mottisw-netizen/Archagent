@@ -51,12 +51,27 @@ def test_an_undersized_space_is_flagged_even_with_no_comment_at_all():
     width_constraints = [c for c in created if c.test.metric == "width"]
     assert len(width_constraints) == 1
     constraint = width_constraints[0]
-    assert constraint.source == "Planning Regulation"
-    assert constraint.priority is Priority.CRITICAL
     assert constraint.test.value == pytest.approx(PARKING_MIN_WIDTH.value)
 
     result = evaluate_constraint(driver, constraint)
     assert result.status == "fail"
+
+
+def test_an_unconfirmed_standard_is_sourced_and_prioritised_honestly():
+    """PARKING_MIN_WIDTH's exact statutory origin was checked directly and
+    disproven for the regulation it was first (wrongly) cited to - see the
+    module docstring and docs/NATIONAL_VS_LOCAL_STANDARDS.md. It stays wired
+    as a real, sensible default, but must never claim "Planning Regulation"
+    rank/CRITICAL priority it has not earned - that would be exactly the kind
+    of fabricated-confidence citation this whole survey exists to avoid."""
+    assert PARKING_MIN_WIDTH.confirmed is False
+    driver = _driver([_parking("p1", 2.0, 5.0)])
+    ledger = ConstraintLedger()
+    created = derive_national_constraints(driver, ledger)
+    constraint = next(c for c in created if c.test.metric == "width")
+    assert constraint.source == "Reference"
+    assert constraint.priority is Priority.MEDIUM
+    assert constraint.confidence < 1.0
 
 
 def test_a_space_that_meets_the_national_minimum_passes():
@@ -103,10 +118,13 @@ def test_an_unmeasurable_element_is_skipped_not_crashed_on():
     assert derive_national_constraints(driver, ledger) == []
 
 
-def test_every_created_constraint_is_sourced_to_a_citable_regulation():
+def test_every_created_constraint_names_its_source_honestly():
+    """Every rule text must say where its number comes from, confirmed or
+    not - the difference is source/priority (checked above), never whether
+    a citation is present at all."""
     driver = _driver([_parking("p1", 2.0, 4.0)])
     ledger = ConstraintLedger()
     created = derive_national_constraints(driver, ledger)
     assert created  # sanity: this test project's fixture actually triggers checks
     for constraint in created:
-        assert "תקנות" in constraint.rule  # the rule text embeds the regulation citation
+        assert "ת\"י 1918" in constraint.rule or "תקנות" in constraint.rule
