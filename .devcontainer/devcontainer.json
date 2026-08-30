@@ -1,0 +1,46 @@
+{
+  "name": "Archagent",
+  "dockerComposeFile": ["../docker-compose.yml", "docker-compose.yml"],
+  "service": "archagent",
+  "workspaceFolder": "/app",
+  "shutdownAction": "stopCompose",
+  "remoteUser": "root",
+
+  // git isn't in the runtime image (it's not needed to run the app, only to
+  // edit it) - the feature installs it without hand-rolling apt-get here.
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {}
+  },
+
+  // The base image already installed the "web,llm,dxf,claude-code" extras
+  // from whatever pyproject.toml looked like when the image was built; once
+  // the live repo is bind-mounted over /app, reinstalling editable against
+  // it (a) picks up any dependency changes you make and (b) adds "dev"
+  // (pytest) and "authority" (pyyaml), which the runtime image intentionally
+  // skips.
+  "postCreateCommand": "pip install --no-cache-dir -e '.[dev,authority]'",
+
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": { "label": "Archagent web UI", "onAutoForward": "notify" }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "esbenp.prettier-vscode",
+        "yzhang.markdown-all-in-one"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python3",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "editor.formatOnSave": false,
+        "files.eol": "\n"
+      }
+    }
+  }
+}

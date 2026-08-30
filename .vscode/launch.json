@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "archagent-web",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "archagent.web.server",
+      "args": ["--host", "0.0.0.0", "--port", "8000"],
+      "justMyCode": false,
+      "env": { "ARCHAGENT_WORKSPACE": "/data/projects" }
+    },
+    {
+      "name": "pytest (current file)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-v"],
+      "justMyCode": false
+    }
+  ]
+}

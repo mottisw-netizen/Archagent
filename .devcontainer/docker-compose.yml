@@ -1,0 +1,18 @@
+# Overrides the root docker-compose.yml's "archagent" service for editing:
+# the image still builds from the same Dockerfile (so it gets the same
+# poppler-utils/nodejs/claude CLI setup as the "real" container), but the
+# live repo is bind-mounted over /app so edits made in VS Code take effect
+# immediately - no rebuild - and the container is kept idle (sleep infinity)
+# instead of auto-starting the web server, so a mid-edit syntax error can't
+# crash it out from under you. Run `archagent-web` yourself from the
+# integrated terminal (or F5 with the provided launch config) when you want
+# to browse the app.
+services:
+  archagent:
+    volumes:
+      # Compose resolves relative paths in every merged file against the
+      # *first* file's directory (the repo root, from ../docker-compose.yml
+      # in devcontainer.json) - not against this file's own directory - so
+      # "." is the repo root here, not "..".
+      - .:/app:cached
+    command: sleep infinity
