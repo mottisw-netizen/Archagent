@@ -132,6 +132,29 @@ container (`docker compose down`, or `docker rm -f archagent` for plain
 archagent-claude-auth` - then repeat the steps above. The name is pinned in
 `docker-compose.yml`, so this is the same command either way.
 
+## Editing the code in VS Code, inside the container
+
+`.devcontainer/` sets up a [Dev Container](https://containers.dev) for
+working on Archagent itself (not just running it): open the repo folder in
+VS Code with the **Dev Containers** extension installed, then **"Reopen in
+Container"** (Command Palette → `Dev Containers: Reopen in Container`).
+
+It reuses the same `docker-compose.yml`/`Dockerfile` as the sections above -
+same image, same `archagent-claude-auth` volume - with two differences layered
+on for editing: your working copy is bind-mounted live over `/app` (so edits
+take effect immediately, no rebuild), and the container starts idle
+(`sleep infinity`) instead of auto-launching the web server, so a mid-edit
+syntax error can't crash it out from under you. On first attach it installs
+`git` and reinstalls the package editable with the `dev`/`authority` extras
+(`pytest`, `pyyaml`) that the runtime image skips.
+
+From the integrated terminal: `pytest` runs the test suite, and
+`archagent-web` starts the app on port 8000 (auto-forwarded, or press F5 for
+the provided "archagent-web" debug config to run it with breakpoints). If
+you already have the app running separately via `run.sh`/`docker compose up`,
+be aware this uses the same service name and volumes - it will attach to
+that same container rather than starting a second one.
+
 ## What's inside, and what isn't
 
 * Installed: the web app (`archagent-web`), the CLI, the JSON reference
