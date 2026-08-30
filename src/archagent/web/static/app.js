@@ -32,6 +32,13 @@ async function handle(response) {
   return data;
 }
 
+const prefersReducedMotion = () =>
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+// CSS `scroll-behavior` cannot override an explicit `behavior` option passed
+// to scrollIntoView() - a reduced-motion preference has to be checked here.
+const scrollIntoView = (node, opts) =>
+  node.scrollIntoView({ ...opts, behavior: prefersReducedMotion() ? 'auto' : opts.behavior });
+
 const $ = (selector) => document.querySelector(selector);
 const el = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -65,6 +72,13 @@ function initTheme() {
     const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = next;
     localStorage.setItem('archagent-theme', next);
+    // The canvases read colour custom properties via getComputedStyle only
+    // when they redraw for their own reasons (pan/zoom/select/resize) -
+    // a theme switch is not one of those, so it has to force a repaint or
+    // the plan keeps rendering in the old theme's colours until the next
+    // interaction.
+    state.viewer?._draw();
+    state.modelEditor?._draw();
   });
 }
 
@@ -260,9 +274,17 @@ async function loadRuns() {
   if (!runs.length) { list.append(el('li', 'empty', 'עדיין לא הורצו בדיקות')); return; }
   runs.slice(0, 8).forEach((run) => {
     const item = el('li');
+    item.tabIndex = 0;
+    item.setAttribute('role', 'button');
     item.append(el('span', null, `${run.project_id.replace('example:', '')} · ${run.mode}`));
     item.append(el('span', 'when', new Date(run.started_at).toLocaleTimeString('he-IL')));
     item.addEventListener('click', () => openRun(run.run_id));
+    item.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openRun(run.run_id);
+      }
+    });
     list.append(item);
   });
 }
@@ -404,7 +426,7 @@ function renderQuestion(question) {
       `alternative:${alternative.letter}`, 'ghost'));
   });
   actions.append(answerButton('דחייה', 'reject', 'ghost'));
-  panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  scrollIntoView(panel, { behavior: 'smooth', block: 'center' });
 }
 
 function answerButton(label, answer, kind) {
@@ -444,7 +466,7 @@ function renderResults(result) {
   renderReport();
   renderFiles(result);
   selectTab('comments');
-  $('#results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  scrollIntoView($('#results'), { behavior: 'smooth', block: 'start' });
 }
 
 function renderKpis(result) {
@@ -462,8 +484,10 @@ function renderKpis(result) {
   ];
   tiles.forEach((tile) => {
     const card = el('div', 'kpi');
-    const value = el('div', `value ${tile.tone}`, tile.value);
-    if (tile.small) value.style.fontSize = '1.1rem';
+    // "small" tiles hold a Hebrew word (e.g. validation_label), not a count -
+    // the .text modifier drops the numeric-tabular mono styling that the
+    // other tiles need for their digits, which otherwise mis-set Hebrew text.
+    const value = el('div', `value ${tile.tone}${tile.small ? ' text' : ''}`, tile.value);
     card.append(value, el('div', 'label', tile.label));
     kpis.append(card);
   });
@@ -637,8 +661,18 @@ function renderConstraints(result) {
     status.append(el('span', `status-dot ${constraint.status}`));
     status.append(document.createTextNode(constraint.status_label +
       (constraint.at_limit ? ' (על הגבול)' : '')));
+    // A bare ">= 5.50m" in an RTL cell has no strong-LTR character before the
+    // operator, so the bidi algorithm resolves the whole run RTL and mirrors
+    // the glyph itself - ">=" renders as "=<", showing the opposite of the
+    // actual requirement. An explicit dir="ltr" span is required, not just
+    // unicode-bidi: isolate (which isolates the run but doesn't set its
+    // direction).
+    const required = el('span', 'ltr', `${constraint.op} ${constraint.required}`);
+    required.dir = 'ltr';
+    const measured = el('span', 'ltr', constraint.measured ?? '');
+    measured.dir = 'ltr';
     return [constraint.id, constraint.priority, constraint.rule,
-      `${constraint.op} ${constraint.required}`, constraint.measured, status];
+      required, measured, status];
   });
   panel.append(table(['אילוץ', 'עדיפות', 'כלל', 'נדרש', 'נמדד', 'סטטוס'], rows));
   if (result.checks.length) {
@@ -744,13 +778,40 @@ function _formatChangeValue(value) {
   return String(value);
 }
 
+// Muted, low-saturation ink tones - the drafting-table palette this redesign
+// is built from, not the brighter SaaS-blue/violet set the plan viewer
+// still had left over from the old dashboard look. --accent (the tool's own
+// cyanotype blue) deliberately never appears here: a category colour must
+// never be confusable with the selection/highlight colour.
 const CATEGORY_COLOUR = {
-  building: '#7c8ba1', wall: '#8f8f8f', parking: '#5b9bf2', driveway: '#c9a24b',
-  room: '#7fb0e0', door: '#b88a4a', window: '#7ec8c8', stair: '#a56bd6',
+  building: '#7c8ba1', wall: '#8f8f8f', parking: '#3f7a91', driveway: '#b08d4f',
+  room: '#8aa6b8', door: '#9c7748', window: '#6f9e9c', stair: '#8d7a5c',
   railing: '#9a9a9a', floor: '#8f8f8f', roof: '#8b6b4a', column: '#6f6f6f',
-  sidewalk: '#b8b09a', site: 'transparent', dimension: '#a8a8a8', text: '#a8a8a8',
+  sidewalk: '#a89d84', site: 'transparent', dimension: '#a8a8a8', text: '#a8a8a8',
   generic: '#909090',
 };
+
+// The same fixed-module engineering grid as .bg-glow (32px minor / 160px
+// major), drawn in screen space so it reads at any zoom level - without
+// this the canvas painted an opaque flat fill straight over the page's
+// signature drafting-table texture, the one motif meant to run through the
+// whole app.
+function _drawCanvasGrid(ctx, width, height, minorColour, majorColour) {
+  const minor = 32, major = 160;
+  ctx.save();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = minorColour;
+  ctx.beginPath();
+  for (let x = 0; x <= width; x += minor) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, height); }
+  for (let y = 0; y <= height; y += minor) { ctx.moveTo(0, y + .5); ctx.lineTo(width, y + .5); }
+  ctx.stroke();
+  ctx.strokeStyle = majorColour;
+  ctx.beginPath();
+  for (let x = 0; x <= width; x += major) { ctx.moveTo(x + .5, 0); ctx.lineTo(x + .5, height); }
+  for (let y = 0; y <= height; y += major) { ctx.moveTo(0, y + .5); ctx.lineTo(width, y + .5); }
+  ctx.stroke();
+  ctx.restore();
+}
 
 class PlanViewer {
   constructor(canvas, detailsEl, data) {
@@ -938,8 +999,13 @@ class PlanViewer {
     const ink = styles.getPropertyValue('--ink').trim() || '#111111';
     const accentColour = styles.getPropertyValue('--accent').trim() || '#2f6690';
     const criticalColour = styles.getPropertyValue('--critical').trim() || '#b3402c';
+    const lineColour = styles.getPropertyValue('--line-strong').trim() || '#3a3f4b';
+    const gridColour = styles.getPropertyValue('--grid-line').trim();
+    const gridColourMajor = styles.getPropertyValue('--grid-line-major').trim();
+    const sansFamily = getComputedStyle(document.body).fontFamily;
     ctx.fillStyle = surface;
     ctx.fillRect(0, 0, rect.width, rect.height);
+    if (gridColour && gridColourMajor) _drawCanvasGrid(ctx, rect.width, rect.height, gridColour, gridColourMajor);
 
     this.elements().forEach((element) => {
       const g = element.geometry || {};
@@ -954,7 +1020,7 @@ class PlanViewer {
       ctx.fillRect(topLeft.x, topLeft.y, w, h);
       ctx.globalAlpha = 1;
 
-      ctx.strokeStyle = selected ? accentColour : (changed ? criticalColour : 'rgba(120,120,120,.7)');
+      ctx.strokeStyle = selected ? accentColour : (changed ? criticalColour : lineColour);
       ctx.lineWidth = selected ? 2.5 : (changed ? 2 : 1);
       if (changed && !selected) ctx.setLineDash([5, 3]); else ctx.setLineDash([]);
       ctx.strokeRect(topLeft.x, topLeft.y, w, h);
@@ -962,7 +1028,7 @@ class PlanViewer {
 
       if (w > 28 && h > 14 && element.label) {
         ctx.fillStyle = ink;
-        ctx.font = '11px sans-serif';
+        ctx.font = `11px ${sansFamily}`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(element.label, topLeft.x + w / 2, topLeft.y + h / 2);
@@ -1161,8 +1227,14 @@ class ModelEditor {
     canvas.width = rect.width; canvas.height = rect.height;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const styles = getComputedStyle(document.documentElement);
+    const surface = styles.getPropertyValue('--surface-2').trim() || '#ffffff';
     const accentColour = styles.getPropertyValue('--accent').trim() || '#2f6690';
     const lineColour = styles.getPropertyValue('--line-strong').trim() || '#3a3f4b';
+    const gridColour = styles.getPropertyValue('--grid-line').trim();
+    const gridColourMajor = styles.getPropertyValue('--grid-line-major').trim();
+    ctx.fillStyle = surface;
+    ctx.fillRect(0, 0, rect.width, rect.height);
+    if (gridColour && gridColourMajor) _drawCanvasGrid(ctx, rect.width, rect.height, gridColour, gridColourMajor);
     this.elements().forEach((element) => {
       const g = element.geometry;
       if (!g || g.kind !== 'rect') return;
@@ -1299,7 +1371,12 @@ function table(headers, rows) {
     body.append(row);
   });
   node.append(head, body);
-  return node;
+  // The constraints table alone has six columns, several holding full
+  // sentences - on a narrow viewport it does not fit, and without its own
+  // scroll container it would force the whole page to scroll sideways.
+  const wrap = el('div', 'table-scroll');
+  wrap.append(node);
+  return wrap;
 }
 
 /* ------------------------------------------------------------ markdown */
@@ -1316,10 +1393,10 @@ function renderMarkdown(markdown) {
     const [header, ...rest] = tableRows;
     const body = rest.filter((row) => !/^\s*\|?[\s:|-]+\|?\s*$/.test(row));
     const cells = (row) => row.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
-    out.push('<table><thead><tr>' + cells(header).map((cell) => `<th>${inline(cell)}</th>`).join('') +
+    out.push('<div class="table-scroll"><table><thead><tr>' + cells(header).map((cell) => `<th>${inline(cell)}</th>`).join('') +
              '</tr></thead><tbody>' +
              body.map((row) => '<tr>' + cells(row).map((cell) => `<td>${inline(cell)}</td>`).join('') + '</tr>').join('') +
-             '</tbody></table>');
+             '</tbody></table></div>');
     tableRows = [];
   };
 

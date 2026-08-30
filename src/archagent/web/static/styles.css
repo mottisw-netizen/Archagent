@@ -9,23 +9,31 @@
    reserved and never reused for anything else. */
 
 :root {
-  --plane: #f2eee1;
-  --surface: #fbf9f2;
-  --surface-2: #ece7d8;
-  --surface-3: #e2ddc9;
-  --line: #d8d1ba;
-  --line-strong: #b9b096;
+  --plane: #eef0ee;
+  --surface: #f8faf9;
+  --surface-2: #e7ebe8;
+  --surface-3: #dbe0dc;
+  --line: #d3d8d1;
+  --line-strong: #968a63;
   --ink: #201c12;
   --ink-2: #55503f;
-  --muted: #8a8267;
+  --muted: #6b6450;
   --accent: #2f6690;
   --accent-ink: #fbf9f2;
   --accent-soft: rgba(47, 102, 144, 0.12);
 
   --good: #3c7a4e;
-  --warning: #b3791f;
+  --warning: #8f5f14;
   --critical: #b3402c;
-  --neutral: #8a8267;
+  --neutral: #6b6450;
+  /* Darker than --good/--warning/--critical on purpose: those tokens are
+     tuned against a plain --surface, but a .pill reads its own text against
+     a *tinted* mix of the status colour over --surface-2, which is a much
+     lighter effective background - the plain tokens fall short of 4.5:1
+     there even though they pass everywhere else they're used. */
+  --pill-good: #2a5537;
+  --pill-warning: #64420e;
+  --pill-critical: #7d2d1f;
 
   --radius: 3px;
   --radius-sm: 2px;
@@ -47,10 +55,10 @@
   --surface-2: #1e2530;
   --surface-3: #262e3b;
   --line: #2b3340;
-  --line-strong: #3c4756;
+  --line-strong: #66768f;
   --ink: #eef1f4;
   --ink-2: #b7bfc9;
-  --muted: #7c8798;
+  --muted: #8c97a7;
   --accent: #6ba3d6;
   --accent-ink: #0b1620;
   --accent-soft: rgba(107, 163, 214, 0.14);
@@ -58,7 +66,10 @@
   --good: #5fa872;
   --warning: #d1a13f;
   --critical: #e17a63;
-  --neutral: #7c8798;
+  --neutral: #8c97a7;
+  --pill-good: #79b689;
+  --pill-warning: #d1a13f;
+  --pill-critical: #e99d8c;
 
   --shadow: 0 1px 0 rgba(0, 0, 0, .4), 0 10px 26px rgba(0, 0, 0, .38);
   --shadow-lift: 0 2px 0 rgba(0, 0, 0, .5), 0 22px 48px rgba(0, 0, 0, .48);
@@ -71,6 +82,20 @@
 * { box-sizing: border-box; }
 
 ::selection { background: var(--accent); color: var(--accent-ink); }
+
+/* One visible focus ring for every interactive element that doesn't already
+   define its own (the form fields below do). Without this, a keyboard user
+   tabbing through project buttons, chips, tabs, and run-list rows gets no
+   indication of where focus is at all. */
+a, button, [tabindex], input, select, summary {
+  outline: none;
+}
+a:focus-visible, button:focus-visible, [tabindex]:focus-visible,
+input:focus-visible, select:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -115,6 +140,18 @@ h2 {
   color: var(--ink-2);
 }
 h3 { font-size: .84rem; color: var(--ink-2); text-transform: none; margin-bottom: .35rem; font-weight: 650; }
+/* h2's uppercase treatment is meant for the curated, static panel labels
+   ("PROJECTS", "OPEN ITEMS") - it is a no-op on Hebrew but silently mangles
+   any Latin proper noun (a model name, "Claude") inside dynamic content
+   that happens to render as an h2, like the question title below. */
+/* The question text is the whole point of this panel - a decision the run
+   is blocked on - not a section label. Reusing bare h2 styling (.78rem,
+   muted, uppercase) made it read quieter than the ordinary panel headers
+   around it, exactly backwards for the most important prompt on the page. */
+#question-title {
+  text-transform: none; letter-spacing: normal;
+  font-size: 1.1rem; font-weight: 700; color: var(--ink);
+}
 p { margin: .35rem 0; }
 .muted { color: var(--muted); }
 .small { font-size: .82rem; }
@@ -155,8 +192,7 @@ code { font-family: var(--mono); font-size: .86em; }
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line-strong);
 }
-.brand { display: flex; align-items: center; gap: .75rem; padding: .65rem 1rem .65rem 0; }
-:root:not([dir="rtl"]) .brand { padding: .65rem 0 .65rem 1rem; }
+.brand { display: flex; align-items: center; gap: .75rem; padding-block: .65rem; padding-inline: 0 1rem; }
 .mark-halo {
   display: grid; place-items: center; width: 38px; height: 38px;
   background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
@@ -168,16 +204,15 @@ code { font-family: var(--mono); font-size: .86em; }
 .brand strong {
   display: block; font-size: 1.05rem; letter-spacing: .01em; font-weight: 800; color: var(--ink);
 }
-.brand span { display: block; font-size: .74rem; color: var(--muted); font-family: var(--mono); }
+.brand span { display: block; font-size: .74rem; color: var(--muted); }
 .topbar-actions { display: flex; align-items: center; gap: 0; }
 .topbar-actions > * { border-inline-start: 1px solid var(--line); }
-:root:not([dir="rtl"]) .topbar-actions > * { border-inline-start: none; border-inline-end: 1px solid var(--line); }
 
 .chip {
   display: inline-flex; align-items: center; gap: .5rem;
   padding: .4rem .9rem; border-radius: 0;
   border: none; background: transparent;
-  color: var(--ink-2); font: inherit; font-size: .8rem; font-family: var(--mono); cursor: pointer;
+  color: var(--ink-2); font: inherit; font-size: .8rem; cursor: pointer;
   transition: color .15s var(--ease), background .15s var(--ease);
   height: 100%;
 }
@@ -233,7 +268,7 @@ main > .panel:nth-of-type(2) { animation-delay: .1s; }
 .project-list .meta { font-size: .76rem; color: var(--muted); display: flex; gap: .5rem; font-family: var(--mono); }
 .tag {
   font-size: .66rem; padding: .05rem .4rem; border-radius: 2px;
-  border: 1px solid var(--line-strong); color: var(--ink-2); font-family: var(--mono);
+  border: 1px solid var(--line-strong); color: var(--ink-2);
 }
 
 .dropzone {
@@ -331,12 +366,12 @@ button.ghost.danger:hover { background: color-mix(in srgb, var(--critical) 12%, 
 /* ----------------------------------------------------------------- live */
 .live-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: .8rem; }
 .live-actions { display: flex; align-items: center; gap: .6rem; }
-.run-status { font-size: .8rem; color: var(--muted); font-family: var(--mono); }
+.run-status { font-size: .8rem; color: var(--muted); }
 
 .steps { list-style: none; display: flex; flex-wrap: wrap; gap: .35rem; padding: 0; margin: 0 0 .9rem; }
 .steps li {
   display: inline-flex; align-items: center; gap: .4rem;
-  font-size: .74rem; font-weight: 600; color: var(--muted); font-family: var(--mono);
+  font-size: .74rem; font-weight: 600; color: var(--muted);
   border: 1px solid var(--line); border-radius: var(--radius-sm); padding: .28rem .65rem;
   background: var(--surface-2); transition: all .2s var(--ease);
 }
@@ -355,14 +390,21 @@ button.ghost.danger:hover { background: color-mix(in srgb, var(--critical) 12%, 
 }
 .stream { list-style: none; margin: 0; padding: .5rem; display: grid; gap: .25rem; }
 .stream li {
+  /* A live log can append many lines a second during a real run - a rise-in
+     on every one reads as flicker, not motion design, and it is the kind of
+     thing prefers-reduced-motion exists for regardless. */
   display: grid; grid-template-columns: 62px 1fr; gap: .6rem;
   padding: .32rem .45rem; border-radius: 2px; font-size: .82rem;
-  animation: rise .3s var(--ease) both;
 }
 .stream li:hover { background: var(--surface); }
 .stream .time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: .72rem; font-family: var(--mono); }
 .stream .detail { color: var(--ink-2); font-family: var(--mono); font-size: .76rem;
-                  word-break: break-word; white-space: pre-wrap; }
+                  word-break: break-word; white-space: pre-wrap;
+                  /* log/tool output is often pure English or a file path with
+                     no dir="ltr" wrapper of its own - let the bidi algorithm
+                     pick each line's direction from its own first strong
+                     character instead of inheriting the page's RTL default. */
+                  unicode-bidi: plaintext; }
 .stream li.kind-claude, .stream li.kind-claude_result { background: var(--accent-soft); }
 .stream .prose { font-size: .85rem; color: var(--ink); font-family: var(--sans); }
 .stream .prose h1, .stream .prose h2, .stream .prose h3 { font-size: .92rem; margin: .5rem 0 .25rem; }
@@ -380,7 +422,7 @@ button.ghost.danger:hover { background: color-mix(in srgb, var(--critical) 12%, 
 .badge {
   background: var(--critical); color: var(--accent-ink); font-size: .68rem;
   padding: .2rem .6rem; border-radius: 2px; font-weight: 700;
-  font-family: var(--mono); letter-spacing: .04em; text-transform: uppercase;
+  letter-spacing: .02em;
 }
 .question blockquote {
   margin: 0 0 .8rem; padding: .6rem .8rem; border-inline-start: 3px solid var(--accent);
@@ -421,6 +463,10 @@ button.ghost.danger:hover { background: color-mix(in srgb, var(--critical) 12%, 
   font-family: var(--mono); font-size: 2rem; font-weight: 700; letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums; line-height: 1.1; color: var(--ink);
 }
+/* holds a Hebrew word (e.g. the validation result), not a digit - none of
+   the numeric-tile styling above applies. */
+.kpi .value.text { font-family: var(--sans); font-size: 1.1rem; font-variant-numeric: normal;
+                    letter-spacing: normal; }
 .kpi .label { font-size: .74rem; color: var(--muted); margin-top: .25rem; font-weight: 600;
               letter-spacing: .04em; text-transform: uppercase; }
 .kpi .value.good { color: var(--good); }
@@ -475,14 +521,14 @@ button.ghost.danger:hover { background: color-mix(in srgb, var(--critical) 12%, 
 .pill {
   display: inline-flex; align-items: center; gap: .3rem;
   font-size: .72rem; font-weight: 700; padding: .12rem .55rem; border-radius: 2px;
-  border: 1px solid transparent; font-family: var(--mono); letter-spacing: .01em;
+  border: 1px solid transparent;
 }
-.pill.good { color: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent);
+.pill.good { color: var(--pill-good); background: color-mix(in srgb, var(--good) 14%, transparent);
              border-color: color-mix(in srgb, var(--good) 45%, transparent); }
-.pill.warn { color: var(--warning);
+.pill.warn { color: var(--pill-warning);
              background: color-mix(in srgb, var(--warning) 16%, transparent);
              border-color: color-mix(in srgb, var(--warning) 45%, transparent); }
-.pill.bad { color: var(--critical); background: color-mix(in srgb, var(--critical) 13%, transparent);
+.pill.bad { color: var(--pill-critical); background: color-mix(in srgb, var(--critical) 13%, transparent);
             border-color: color-mix(in srgb, var(--critical) 45%, transparent); }
 .pill.muted { color: var(--muted); background: var(--surface); border-color: var(--line-strong); }
 .comment .text { margin: .45rem 0 .3rem; font-size: .95rem; }
@@ -501,6 +547,7 @@ button.ghost.danger:hover { background: color-mix(in srgb, var(--critical) 12%, 
 .comment .foot .meter { flex: 0 0 160px; }
 
 /* ---------------------------------------------------------------- table */
+.table-scroll { overflow-x: auto; }
 table.data { width: 100%; border-collapse: collapse; font-size: .84rem; }
 table.data th, table.data td {
   text-align: start; padding: .42rem .55rem; border-bottom: 1px solid var(--line);
@@ -532,7 +579,7 @@ table.data td.num { font-variant-numeric: tabular-nums; font-family: var(--mono)
   transition: all .15s var(--ease);
 }
 .viewer-toggle button.active { background: var(--accent); color: var(--accent-ink); }
-.viewer-hint { margin-inline-start: auto; font-family: var(--mono); font-size: .74rem; }
+.viewer-hint { margin-inline-start: auto; font-size: .74rem; }
 .viewer-layout { display: grid; grid-template-columns: 1fr 300px; gap: .8rem; align-items: start; }
 .viewer-stage {
   position: relative; height: 68vh; border: 1px solid var(--line);
@@ -591,6 +638,8 @@ table.data td.num { font-variant-numeric: tabular-nums; font-family: var(--mono)
   background: var(--surface); border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm); padding: .65rem .95rem; box-shadow: var(--shadow-lift);
   font-size: .86rem; max-width: 380px; animation: rise .25s var(--ease) both;
+  /* often a raw fetch()/exception message - English, no dir="ltr" of its own */
+  unicode-bidi: plaintext;
 }
 .toast.bad { border-color: var(--critical); color: var(--critical); }
 
@@ -616,10 +665,10 @@ dialog::backdrop { background: rgba(8, 10, 6, .55); backdrop-filter: blur(3px); 
 .intro-step {
   position: relative; overflow: hidden;
   border: 1px solid var(--line); border-radius: var(--radius-sm);
-  background: var(--surface-2); padding: .8rem .9rem .8rem 3.1rem; display: grid; gap: .2rem;
+  background: var(--surface-2); padding-block: .8rem; padding-inline: 3.1rem .9rem;
+  display: grid; gap: .2rem;
   transition: border-color .15s var(--ease);
 }
-:root:not([dir="rtl"]) .intro-step { padding: .8rem 3.1rem .8rem .9rem; }
 .intro-step:hover { border-color: var(--line-strong); }
 .intro-step .n {
   position: absolute; inset-inline-start: .7rem; top: .75rem;
@@ -650,5 +699,9 @@ dialog::backdrop { background: rgba(8, 10, 6, .55); backdrop-filter: blur(3px); 
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
+  html { scroll-behavior: auto !important; }
 }
